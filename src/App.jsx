@@ -79,7 +79,10 @@ export default function App() {
 
   // Data state
   const [sosCases, setSCases]       = useState(() => applyAutoExpire(seedSOSCases()))
-  const [incidents, setIncidents]   = useState(() => seedIncidents())
+  const [incidents, setIncidents]   = useState(() => {
+    const list = seedIncidents()
+    return Array.isArray(list) ? list : []
+  })
 
   // Flood report filter tab
   const [reportFilter, setReportFilter] = useState('all') // 'all' | 'road' | 'housing'
@@ -103,14 +106,23 @@ export default function App() {
   //   - tickIncidents: auto-clean expired incidents, refresh state
   //   - load(): refetch Open-Meteo weather data for all provinces
   useEffect(() => {
-    const tickSOS      = () => setSCases(applyAutoExpire(loadSOSCases()))
+    const tickSOS      = () => {
+      const next = applyAutoExpire(loadSOSCases())
+      setSCases(Array.isArray(next) ? next : [])
+    }
     const tickIncident = () => {
       const wByDist = BKK_DISTRICTS.reduce((acc, d) => {
         acc[d.id] = { rain24h: d.rain24h }
         return acc
       }, {})
-      const { filtered } = autoCleanIncidents(loadIncidents(), wByDist)
-      setIncidents(filtered)
+      try {
+        const result = autoCleanIncidents(loadIncidents(), wByDist)
+        // autoCleanIncidents() คืน { filtered, removedIds }
+        const safeList = Array.isArray(result?.filtered) ? result.filtered : []
+        setIncidents(safeList)
+      } catch (e) {
+        console.warn('[tickIncident] failed:', e)
+      }
     }
     const refetchWeather = () => {
       // ดึงข้อมูล Open-Meteo + สถานะ SOS/Incidents ใหม่
@@ -170,7 +182,9 @@ export default function App() {
 
   // ---------- Unified flood reports ----------
   const allFloodReport = useMemo(() => {
-    const incidentItems = incidents.map((i) => ({
+    // Defensive: incidents ต้องเป็น Array เสมอ (กัน crash จากข้อมูลเก่าใน localStorage)
+    const safeIncidents = Array.isArray(incidents) ? incidents : []
+    const incidentItems = safeIncidents.map((i) => ({
       id: i.id,
       name: i.road,
       waterLevel: `${i.waterLevelCm} ซม.`,
@@ -235,7 +249,8 @@ export default function App() {
   }, [allFloodReport, reportFilter])
 
   // ---------- SOS ----------
-  const liveSOS = activeSOS(sosCases)
+  const safeSOSCases = Array.isArray(sosCases) ? sosCases : []
+  const liveSOS = activeSOS(safeSOSCases)
   const sortedSOS = [...liveSOS] // ซ่อนเคสที่ช่วยแล้ว
   const sosTotalPages = Math.max(1, Math.ceil(sortedSOS.length / SOS_PAGE_SIZE))
   const sosPageItems  = sortedSOS.slice((pageSos - 1) * SOS_PAGE_SIZE, pageSos * SOS_PAGE_SIZE)
@@ -320,10 +335,23 @@ export default function App() {
         acc[d.id] = { rain24h: d.rain24h }
         return acc
       }, {})
-      const cleanIncidents = autoCleanIncidents(loadIncidents(), wByDist)
-      setIncidents(cleanIncidents)
+
+      // autoCleanIncidents() คืน { filtered, removedIds } — เอาแค่ filtered (array)
+      let cleanArray = []
+      try {
+        const result = autoCleanIncidents(loadIncidents(), wByDist)
+        cleanArray = Array.isArray(result?.filtered) ? result.filtered : []
+      } catch {
+        cleanArray = []
+      }
+      setIncidents(cleanArray)
+
+      // รอ Open-Meteo fetch เสร็จ (catch error แยก — ไม่ให้พังทั้งหน้า)
       await Promise.allSettled(promises)
       setLastRefreshAt(new Date())
+    } catch (err) {
+      console.error('[refreshReports] failed:', err)
+      // ไม่ throw — UI ยังใช้งานได้
     } finally {
       // หน่วงเวลาเล็กน้อยเพื่อให้ UI เห็น animation
       setTimeout(() => setRefreshingReports(false), 350)
@@ -638,7 +666,7 @@ export default function App() {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-            {filteredReports.length === 0 ? (
+            {(!Array.isArray(filteredReports) || filteredReports.length === 0) ? (
               <div className="col-span-full text-center text-sm text-slate-400 py-6">
                 {reportFilter === 'all'
                   ? 'ยังไม่มีรายงาน — กดปุ่ม "📢 แจ้งเหตุ" เพื่อเพิ่มข้อมูล'
@@ -689,7 +717,7 @@ export default function App() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {sosPageItems.length === 0 ? (
+            {(!Array.isArray(sosPageItems) || sosPageItems.length === 0) ? (
               <div className="col-span-full text-center text-sm text-emerald-600 py-6 bg-white/60 rounded-lg">
                 ✅ ขณะนี้ไม่มีเคส SOS ค้าง — ทุกคนปลอดภัย
               </div>
