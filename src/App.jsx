@@ -12,9 +12,7 @@ import {
 import {
   loadIncidents, seedIncidents, autoCleanIncidents, voteIncident,
 } from './services/incidentSystem'
-import {
-  seedDefaultUsers, loadSession, logout as authLogout,
-} from './services/auth'
+import { useAuth } from './AuthContext.jsx'
 
 import Header                  from './components/Header.jsx'
 import RainMap                 from './components/RainMap.jsx'
@@ -48,13 +46,11 @@ export default function App() {
 
   const [search, setSearch] = useState('')
 
-  // Auth state
-  const [currentUser, setCurrentUser] = useState(() => {
-    seedDefaultUsers()
-    return loadSession()
-  })
+  // Auth state — uses Supabase-backed context
+  const { user: currentUser, loading: authLoading, signOut: authSignOut, signInGoogle } = useAuth()
   const [loginOpen, setLoginOpen] = useState(false)
   const [loginIntent, setLoginIntent] = useState(null) // 'sos' | 'incident' | null
+  const [googleLoading, setGoogleLoading] = useState(false)
 
   // Pagination
   const [pageSos, setPageSos]       = useState(1)
@@ -184,8 +180,20 @@ export default function App() {
     setLoginIntent(intent)
     setLoginOpen(true)
   }
+  const handleGoogleSignIn = async () => {
+    try {
+      setGoogleLoading(true)
+      await signInGoogle()
+      // Supabase will redirect → on return onAuthChange updates `currentUser`
+    } catch (e) {
+      console.error('Google sign-in failed:', e)
+      alert(`เข้าสู่ระบบด้วย Google ไม่สำเร็จ: ${e?.message || e}`)
+    } finally {
+      setGoogleLoading(false)
+    }
+  }
   const handleLoggedIn = (u) => {
-    setCurrentUser(u)
+    // (legacy local fallback — Supabase path updates via context)
     if (loginIntent === 'sos') {
       setTimeout(() => setSOpen(true), 100)
     } else if (loginIntent === 'incident') {
@@ -193,9 +201,8 @@ export default function App() {
     }
     setLoginIntent(null)
   }
-  const handleLogout = () => {
-    authLogout()
-    setCurrentUser(null)
+  const handleLogout = async () => {
+    await authSignOut()
   }
 
   const openSOSFromMap = () => {
@@ -263,6 +270,8 @@ export default function App() {
         currentUser={currentUser}
         onLoginClick={() => handleLoginClick(null)}
         onLogoutClick={handleLogout}
+        onGoogleSignIn={handleGoogleSignIn}
+        googleLoading={googleLoading}
       />
 
       <main className="flex-1 max-w-[1500px] w-full mx-auto px-3 md:px-5 py-4 space-y-4">

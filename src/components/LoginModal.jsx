@@ -1,16 +1,32 @@
 import { useState } from 'react'
 import { X, User, LogIn, UserPlus } from 'lucide-react'
 import { login, registerUser, seedDefaultUsers } from '../services/auth'
+import { useAuth } from '../AuthContext'
 
 export default function LoginModal({ onClose, onLoggedIn }) {
   // เรียก seed ครั้งแรกให้ผู้ใช้เห็นว่ามี demo/guest ให้ลอง
   seedDefaultUsers()
+  const { signInGoogle, loading: authLoading } = useAuth()
 
   const [mode, setMode] = useState('login') // 'login' | 'register'
   const [username, setUsername] = useState('')
   const [displayName, setDisplayName] = useState('')
   const [phone, setPhone] = useState('')
   const [error, setError] = useState(null)
+  const [googleLoading, setGoogleLoading] = useState(false)
+
+  const handleGoogle = async () => {
+    try {
+      setError(null)
+      setGoogleLoading(true)
+      await signInGoogle()
+      // เมื่อ google OAuth redirect สำเร็จ จะกลับมาที่นี่ + onAuthChange อัปเดต user แล้ว
+      // ในส่วนนี้จะไม่เห็น effect เพราะ redirect ออกจากแอปก่อน
+    } catch (e) {
+      setError(e?.message || 'ไม่สามารถเข้าสู่ระบบด้วย Google ได้')
+      setGoogleLoading(false)
+    }
+  }
 
   const submit = () => {
     try {
@@ -20,7 +36,6 @@ export default function LoginModal({ onClose, onLoggedIn }) {
         u = login(username)
       } else {
         u = registerUser({ username, displayName, phone })
-        // auto-login หลัง register
         u = login(u.username)
       }
       onLoggedIn && onLoggedIn(u)
@@ -63,6 +78,42 @@ export default function LoginModal({ onClose, onLoggedIn }) {
 
         {/* Body */}
         <div className="px-5 py-4 space-y-3">
+          {/* ===== Google Sign-In Button ===== */}
+          <button
+            onClick={handleGoogle}
+            disabled={googleLoading || authLoading}
+            className="w-full inline-flex items-center justify-center gap-2 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-700 font-semibold py-2.5 rounded-lg shadow-sm transition disabled:opacity-50"
+          >
+            {googleLoading ? (
+              <>
+                <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" opacity="0.25" />
+                  <path d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" fill="currentColor" />
+                </svg>
+                กำลังเปิด Google…
+              </>
+            ) : (
+              <>
+                {/* Google "G" logo */}
+                <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                  <path fill="#4285F4" d="M17.64 9.205c0-.638-.057-1.252-.164-1.841H9v3.481h4.844a4.14 4.14 0 01-1.796 2.715v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.613z" />
+                  <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.182l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.583-5.036-3.71H.957v2.332A8.997 8.997 0 009 18z" />
+                  <path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 013.682 9c0-.593.103-1.17.282-1.71V4.958H.957A8.996 8.996 0 000 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" />
+                  <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.346l2.582-2.582C13.463.891 11.426 0 9 0A8.997 8.997 0 00.957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" />
+                </svg>
+                เข้าสู่ระบบด้วย Google
+              </>
+            )}
+          </button>
+
+          {/* Divider */}
+          <div className="flex items-center gap-2 text-[11px] text-slate-400 my-2">
+            <div className="flex-1 h-px bg-slate-200" />
+            <span>หรือ</span>
+            <div className="flex-1 h-px bg-slate-200" />
+          </div>
+
+          {/* ===== Local username form ===== */}
           <label className="block">
             <div className="text-[11px] font-semibold text-slate-600 mb-1">ชื่อผู้ใช้ (Username)</div>
             <input
