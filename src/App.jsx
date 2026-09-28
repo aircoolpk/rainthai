@@ -554,37 +554,37 @@ export default function App() {
           </div>
         </section>
 
-        {/* ===== Footer (ส่วนล่างสุดของเว็บไซต์) ===== */}
+        {/* ===== Footer (Single-Line · Responsive) ===== */}
         <footer className="mt-8 border-t border-slate-200 bg-white/60 backdrop-blur">
-          <div className="max-w-[1500px] mx-auto px-4 md:px-6 py-6">
-            <div className="flex flex-col items-center gap-2 text-center">
-              <div className="text-sm md:text-base font-semibold text-slate-700">
-                Dev by <span className="text-sky-700">Peerawit K.</span>
-              </div>
-              <div className="text-xs md:text-sm text-slate-600">
-                rainthai <span className="text-slate-400 mx-1">·</span> React + Vite + Leaflet
-              </div>
-              <div className="text-[11px] md:text-xs text-slate-500 flex flex-wrap items-center justify-center gap-x-1.5 gap-y-0.5">
-                <span>tile จาก</span>
-                <a
-                  className="text-sky-600 hover:text-sky-700 hover:underline font-medium"
-                  href="https://www.openstreetmap.org/"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  OpenStreetMap
-                </a>
-                <span className="text-slate-400 mx-0.5">·</span>
-                <span>ข้อมูลจาก</span>
-                <a
-                  className="text-sky-600 hover:text-sky-700 hover:underline font-medium"
-                  href="https://open-meteo.com/"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Open-Meteo
-                </a>
-              </div>
+          <div className="max-w-[1500px] mx-auto px-4 md:px-6 py-4">
+            <div className="flex flex-row flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center text-xs md:text-sm text-slate-600">
+              <span>
+                Dev by <span className="font-semibold text-sky-700">Peerawit K.</span>
+              </span>
+              <span className="text-slate-300 select-none">·</span>
+              <span className="font-medium text-slate-700">rainthai</span>
+              <span className="text-slate-300 select-none">·</span>
+              <span>React + Vite + Leaflet</span>
+              <span className="text-slate-300 select-none">·</span>
+              <span>tile จาก</span>
+              <a
+                className="text-sky-600 hover:text-sky-700 hover:underline font-medium"
+                href="https://www.openstreetmap.org/"
+                target="_blank"
+                rel="noreferrer"
+              >
+                OpenStreetMap
+              </a>
+              <span className="text-slate-300 select-none">·</span>
+              <span>ข้อมูลจาก</span>
+              <a
+                className="text-sky-600 hover:text-sky-700 hover:underline font-medium"
+                href="https://open-meteo.com/"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open-Meteo
+              </a>
             </div>
           </div>
         </footer>
