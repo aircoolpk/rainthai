@@ -30,7 +30,7 @@ import EmergencyContactsModal  from './components/EmergencyContactsModal.jsx'
 import Pagination              from './components/Pagination.jsx'
 import {
   Droplets, Waves, Siren, MapPin, Building2, Megaphone, Phone, Car, Home,
-  ChevronLeft, ChevronRight,
+  ChevronLeft, ChevronRight, RefreshCw,
 } from 'lucide-react'
 
 const SOS_PAGE_SIZE = 9
@@ -306,6 +306,30 @@ export default function App() {
     setIncidents(loadIncidents())
   }
 
+    // ---------- Manual refresh (Open-Meteo + Incidents) ----------
+  const [refreshingReports, setRefreshingReports] = useState(false)
+  const [lastRefreshAt, setLastRefreshAt] = useState(() => new Date())
+
+  const handleRefreshReports = useCallback(async () => {
+    if (refreshingReports) return
+    setRefreshingReports(true)
+    try {
+      // ดึง incidents ใหม่ + weather data (Open-Meteo) พร้อมกัน
+      const promises = [load()]
+      const wByDist = BKK_DISTRICTS.reduce((acc, d) => {
+        acc[d.id] = { rain24h: d.rain24h }
+        return acc
+      }, {})
+      const cleanIncidents = autoCleanIncidents(loadIncidents(), wByDist)
+      setIncidents(cleanIncidents)
+      await Promise.allSettled(promises)
+      setLastRefreshAt(new Date())
+    } finally {
+      // หน่วงเวลาเล็กน้อยเพื่อให้ UI เห็น animation
+      setTimeout(() => setRefreshingReports(false), 350)
+    }
+  }, [refreshingReports, load])
+
   const handleSosResolve = (id) => {
     const next = sosCases.map((c) =>
       c.id === id ? { ...c, status: 'resolved', resolvedAt: new Date().toISOString() } : c,
@@ -565,15 +589,31 @@ export default function App() {
                   <span className="inline-block w-2 h-2 rounded-full bg-sky-500" />
                   Open-Meteo & OSM
                 </span>
+                <span className="text-slate-300">|</span>
+                <span className="inline-flex items-center gap-1 text-slate-500">
+                  อัปเดตล่าสุด: <b className="text-slate-700">{lastRefreshAt.toLocaleTimeString('th-TH')}</b>
+                  <span className="text-[10px] text-slate-400">⏱️ auto 15 นาที</span>
+                </span>
               </div>
             </div>
-            <button
-              onClick={openIncidentFromMap}
-              className="bg-amber-500 hover:bg-amber-400 text-white text-sm font-semibold px-4 py-2 rounded-lg shadow-sm flex items-center gap-2"
-            >
-              <Megaphone className="w-4 h-4" />
-              📢 แจ้งเหตุ
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleRefreshReports}
+                disabled={refreshingReports}
+                className="inline-flex items-center gap-2 bg-sky-600 hover:bg-sky-500 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-semibold px-3.5 py-2 rounded-lg shadow-sm transition"
+                title="ดึงข้อมูลสดจาก Open-Meteo / OSM / Supabase"
+              >
+                <RefreshCw className={`w-4 h-4 ${refreshingReports ? 'animate-spin' : ''}`} />
+                <span>{refreshingReports ? 'กำลังอัปเดต...' : 'อัปเดตข้อมูลสด'}</span>
+              </button>
+              <button
+                onClick={openIncidentFromMap}
+                className="bg-amber-500 hover:bg-amber-400 text-white text-sm font-semibold px-4 py-2 rounded-lg shadow-sm flex items-center gap-2"
+              >
+                <Megaphone className="w-4 h-4" />
+                📢 แจ้งเหตุ
+              </button>
+            </div>
           </div>
 
           {/* Filter tabs */}
