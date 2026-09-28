@@ -29,9 +29,24 @@ import EmergencyContactsModal  from './components/EmergencyContactsModal.jsx'
 import Pagination              from './components/Pagination.jsx'
 import {
   Droplets, Waves, Siren, MapPin, Building2, Megaphone, Phone, Car, Home,
+  ChevronLeft, ChevronRight,
 } from 'lucide-react'
 
 const SOS_PAGE_SIZE = 9
+const DISTRICT_PAGE_SIZE = 6
+
+// risk priority สำหรับ sort: critical/danger ก่อน → watch → moderate → safe
+const RISK_PRIORITY = { critical: 0, danger: 1, watch: 2, moderate: 3, safe: 4 }
+
+// เรียงเขตตาม: วิกฤต > เฝ้าระวัง > ปกติ, แล้วตามชื่อเขต (ภาษาไทย)
+function sortDistricts(list) {
+  return [...list].sort((a, b) => {
+    const pa = RISK_PRIORITY[a.risk] ?? 99
+    const pb = RISK_PRIORITY[b.risk] ?? 99
+    if (pa !== pb) return pa - pb
+    return (a.name || '').localeCompare(b.name || '', 'th')
+  })
+}
 
 export default function App() {
   const [provinces, setProvinces]     = useState([])
@@ -54,6 +69,7 @@ export default function App() {
 
   // Pagination
   const [pageSos, setPageSos]       = useState(1)
+  const [pageDistrict, setPageDistrict] = useState(1)
 
   // Modal state
   const [sosOpen, setSOpen]         = useState(false)
@@ -99,6 +115,11 @@ export default function App() {
   useEffect(() => {
     setPageSos(1)
   }, [sosCases.length])
+
+  // Reset district pagination เมื่อ search เปลี่ยน
+  useEffect(() => {
+    setPageDistrict(1)
+  }, [search])
 
   // ---------- district lookup for SOS ----------
   const districtLookup = useMemo(() => {
@@ -407,21 +428,70 @@ export default function App() {
                 </div>
 
                 <div className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-2">
-                  <div className="text-xs font-semibold text-slate-700 uppercase tracking-wider px-1">
-                    เขตในกรุงเทพฯ (50)
-                  </div>
-                  {BKK_DISTRICTS.filter((d) =>
-                    !search.trim() ||
-                    d.name.toLowerCase().includes(search.toLowerCase()) ||
-                    (d.communities || []).some(((c) => c.toLowerCase().includes(search.toLowerCase()))),
-                  ).map((d) => (
-                    <DistrictCard
-                      key={d.id}
-                      d={d}
-                      onClick={handleDistrictClick}
-                      isActive={selectedDistrict?.id === d.id}
-                    />
-                  ))}
+                  {/* Header + Pagination status */}
+                  {(() => {
+                    const filtered = BKK_DISTRICTS.filter((d) =>
+                      !search.trim() ||
+                      d.name.toLowerCase().includes(search.toLowerCase()) ||
+                      (d.communities || []).some((c) => c.toLowerCase().includes(search.toLowerCase())),
+                    )
+                    const sorted = sortDistricts(filtered)
+                    const totalPages = Math.max(1, Math.ceil(sorted.length / DISTRICT_PAGE_SIZE))
+                    const safePage = Math.min(pageDistrict, totalPages)
+                    const pageItems = sorted.slice((safePage - 1) * DISTRICT_PAGE_SIZE, safePage * DISTRICT_PAGE_SIZE)
+                    return (
+                      <>
+                        <div className="flex items-center justify-between px-1">
+                          <div className="text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                            เขตในกรุงเทพฯ ({sorted.length})
+                          </div>
+                          {sorted.length > 0 && (
+                            <div className="text-[10px] text-slate-500 font-medium">
+                                หน้า {safePage} / {totalPages}
+                              </div>
+                          )}
+                        </div>
+                        {pageItems.map((d) => (
+                          <DistrictCard
+                            key={d.id}
+                            d={d}
+                            onClick={handleDistrictClick}
+                            isActive={selectedDistrict?.id === d.id}
+                          />
+                        ))}
+                        {sorted.length === 0 && (
+                          <div className="text-center text-xs text-slate-400 py-4">
+                            ไม่พบเขตที่ค้นหา
+                          </div>
+                        )}
+
+                        {/* ===== Pagination controls (เขต กทม.) ===== */}
+                        {totalPages > 1 && (
+                          <div className="flex items-center justify-center gap-2 pt-2 pb-1">
+                            <button
+                              onClick={() => setPageDistrict((p) => Math.max(1, p - 1))}
+                              disabled={safePage <= 1}
+                              className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                            >
+                              <ChevronLeft className="w-3.5 h-3.5" />
+                              <span>ก่อนหน้า</span>
+                            </button>
+                            <div className="text-xs text-slate-600 font-medium px-2">
+                              {safePage} / {totalPages}
+                            </div>
+                            <button
+                              onClick={() => setPageDistrict((p) => Math.min(totalPages, p + 1))}
+                              disabled={safePage >= totalPages}
+                              className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                            >
+                              <span>ถัดไป</span>
+                              <ChevronRight className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
+                      </>
+                    )
+                  })()}
                 </div>
 
                 <Legend />
