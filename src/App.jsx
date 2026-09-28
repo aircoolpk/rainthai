@@ -4,6 +4,7 @@ import { THAI_PROVINCES, FLOOD_REPORTS, SEVERITY_META } from './data/provinces'
 import {
   BKK_DISTRICTS, FLOOD_ROADS, FLOOD_ZONES, PERIMETER_PROVINCES, RISK_META,
 } from './data/bangkok'
+import { parseWaterLevelCm } from './data/waterLevel'
 import { fetchAllProvinces, LEVEL_META } from './services/weatherService'
 import {
   seedSOSCases, activeSOS, expiredSOS,
@@ -201,9 +202,13 @@ export default function App() {
           isoTime = new Date(+y, +mo - 1, +d, +h, +mi).toISOString()
         }
       } catch {}
+      // สกัด cm จาก waterLevel field (string เช่น "สูงถึงระดับคอ (~150 ซม.)")
+      const waterLevelCm = parseWaterLevelCm(f.waterLevel)
       return {
         ...f,
-        waterLevelCm: parseFloat(f.waterLevel) || 0,
+        waterLevelCm,
+        // แสดง cm ใหม่เพื่อ UI
+        waterLevelDisplay: waterLevelCm > 0 ? `${waterLevelCm} ซม.` : (f.waterLevel || '—'),
         source: 'api',
         sourceLabel: 'Open-Meteo/OSM',
         // map category: ถ้า name มี "ชุมชน" / "บ้าน" / "ที่อยู่อาศัย" / "อพยพ" → housing

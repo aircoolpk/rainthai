@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Clock, MapPin, ArrowRight, ThumbsUp, ThumbsDown, Home, Car, Lock, User, Navigation } from 'lucide-react'
 import { SEVERITY_META } from '../data/provinces'
 import { severityFromWaterLevel } from '../data/bangkok'
+import { parseWaterLevelCm } from '../data/waterLevel'
 import { loadVotes, voteReport, loadCorrections } from '../services/communitySystem'
 
 // =========================================================
@@ -45,10 +46,14 @@ export default function UnifiedFloodReportCard({
   }
 
   // Severity badge — คำนวณจาก waterLevelCm ตามมาตรฐาน 4 ระดับ
-  // fallback ไป SEVERITY_META ถ้าไม่มี cm
-  const wlMeta = (typeof report.waterLevelCm === 'number' && report.waterLevelCm >= 0)
-    ? severityFromWaterLevel(report.waterLevelCm)
-    : null
+  // fallback chain:
+  //   1) report.waterLevelCm (ที่ App.jsx แปลงมาแล้ว)
+  //   2) parseWaterLevelCm(report.waterLevel) — ดึงจาก string เช่น "สูงถึงระดับคอ (~150 ซม.)"
+  //   3) SEVERITY_META[report.severity] — legacy fallback
+  const cmFromField = (typeof report.waterLevelCm === 'number' && report.waterLevelCm >= 0)
+    ? report.waterLevelCm
+    : parseWaterLevelCm(report.waterLevel)
+  const wlMeta = cmFromField > 0 ? severityFromWaterLevel(cmFromField) : null
   const sevMeta = wlMeta || SEVERITY_META[report.severity] || SEVERITY_META.critical
 
   // Source badge (User vs Auto API)

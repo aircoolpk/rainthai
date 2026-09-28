@@ -2,11 +2,15 @@ import { useState, useEffect } from 'react'
 import { Clock, ArrowRight, ThumbsUp, ThumbsDown } from 'lucide-react'
 import { loadVotes, voteReport, loadCorrections } from '../services/communitySystem'
 import { severityFromWaterLevel } from '../data/bangkok'
+import { parseWaterLevelCm } from '../data/waterLevel'
 
 export default function FloodCard({ f, onClick, isActive }) {
-  // คำนวณ meta จากระดับน้ำจริง (cm) เพื่อ badge มาตรฐาน
-  const cm = parseFloat(f.waterLevel) || 0
+  // คำนวณ meta จากระดับน้ำจริง (cm) — รองรับทั้ง number และ string format
+  // เช่น "สูงถึงระดับคอ (~150 ซม.)" → cm = 150 → "อพยพ" (แดง)
+  const cm = parseWaterLevelCm(f.waterLevel)
   const meta = severityFromWaterLevel(cm)
+  // สร้าง display string: ถ้า parse ได้ → "150 ซม.", ถ้าไม่ได้ → ใช้ข้อความเดิม
+  const waterLevelDisplay = cm > 0 ? `${cm} ซม.` : (f.waterLevel || '—')
   const [vote, setVote] = useState(() => loadVotes()[f.id] || { up: 0, down: 0, userVoted: null })
   const [corrections, setCorrections] = useState(() => loadCorrections()[f.id] || [])
 
@@ -58,7 +62,7 @@ export default function FloodCard({ f, onClick, isActive }) {
               </span>
             </div>
             <div className="text-xs text-slate-600 mt-1">
-              ระดับน้ำ: <span className="font-medium">{f.waterLevel}</span>
+              ระดับน้ำ: <span className="font-medium">{waterLevelDisplay}</span>
             </div>
             {f.note && (
               <div className="text-xs text-slate-500 mt-1 line-clamp-2">{f.note}</div>
