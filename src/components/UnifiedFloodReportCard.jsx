@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Clock, MapPin, ArrowRight, ThumbsUp, ThumbsDown, Home, Car, Lock, User, Navigation } from 'lucide-react'
 import { SEVERITY_META } from '../data/provinces'
+import { severityFromWaterLevel } from '../data/bangkok'
 import { loadVotes, voteReport, loadCorrections } from '../services/communitySystem'
 
 // =========================================================
@@ -43,9 +44,12 @@ export default function UnifiedFloodReportCard({
     setVote(voteReport(report.id, type))
   }
 
-  // Severity badge
-  const severityKey = report.severity || 'critical'
-  const sevMeta = SEVERITY_META[severityKey] || SEVERITY_META.critical
+  // Severity badge — คำนวณจาก waterLevelCm ตามมาตรฐาน 4 ระดับ
+  // fallback ไป SEVERITY_META ถ้าไม่มี cm
+  const wlMeta = (typeof report.waterLevelCm === 'number' && report.waterLevelCm >= 0)
+    ? severityFromWaterLevel(report.waterLevelCm)
+    : null
+  const sevMeta = wlMeta || SEVERITY_META[report.severity] || SEVERITY_META.critical
 
   // Source badge (User vs Auto API)
   const sourceColor = report.source === 'user'

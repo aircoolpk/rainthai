@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react'
-import { SEVERITY_META } from '../data/provinces'
 import { Clock, ArrowRight, ThumbsUp, ThumbsDown } from 'lucide-react'
 import { loadVotes, voteReport, loadCorrections } from '../services/communitySystem'
+import { severityFromWaterLevel } from '../data/bangkok'
 
 export default function FloodCard({ f, onClick, isActive }) {
-  const meta = SEVERITY_META[f.severity]
+  // คำนวณ meta จากระดับน้ำจริง (cm) เพื่อ badge มาตรฐาน
+  const cm = parseFloat(f.waterLevel) || 0
+  const meta = severityFromWaterLevel(cm)
   const [vote, setVote] = useState(() => loadVotes()[f.id] || { up: 0, down: 0, userVoted: null })
   const [corrections, setCorrections] = useState(() => loadCorrections()[f.id] || [])
 

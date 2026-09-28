@@ -179,7 +179,7 @@ export default function RainMap({
 
       {/* ===== Polylines: เส้นถนนน้ำท่วม ===== */}
       {showFlood && floodRoads.map((r) => {
-        const isEvacuate = r.waterLevelCm >= 80
+        const isEvacuate = r.waterLevelCm >= 81
         return (
           <Polyline
             key={r.id}
@@ -210,10 +210,10 @@ export default function RainMap({
                 <div className="font-semibold text-slate-900">{r.name}</div>
                 <div className="flex items-center justify-between gap-2 mt-1">
                   <span
-                    className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full text-white"
-                    style={{ background: SEVERITY_META[r.severity].color }}
+                    className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full text-white ${severityFromWaterLevel(r.waterLevelCm).bg} ${severityFromWaterLevel(r.waterLevelCm).text} ${severityFromWaterLevel(r.waterLevelCm).border} border`}
+                    style={{ background: severityFromWaterLevel(r.waterLevelCm).color }}
                   >
-                    {SEVERITY_META[r.severity].label}
+                    {severityFromWaterLevel(r.waterLevelCm).label}
                   </span>
                   <span className="text-[10px] font-bold text-slate-700">
                     สูง {r.waterLevelCm} ซม.
@@ -233,7 +233,7 @@ export default function RainMap({
 
       {/* ===== Polygons: โซนน้ำท่วม ===== */}
       {showFlood && floodZones.map((z) => {
-        const isEvacuate = (z.waterLevelCm || 100) >= 80
+        const isEvacuate = (z.waterLevelCm || 100) >= 81
         return (
           <Polygon
             key={z.id}
@@ -267,9 +267,9 @@ export default function RainMap({
                     ระดับน้ำ: <b>{z.waterLevelCm} ซม.</b>
                   </div>
                 )}
-                <span className="inline-block text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full text-white mt-1"
-                  style={{ background: SEVERITY_META[z.severity].color }}>
-                  {SEVERITY_META[z.severity].label}
+                <span className={`inline-block text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full text-white mt-1 ${severityFromWaterLevel(z.waterLevelCm || 100).bg} ${severityFromWaterLevel(z.waterLevelCm || 100).text} ${severityFromWaterLevel(z.waterLevelCm || 100).border} border`}
+                  style={{ background: severityFromWaterLevel(z.waterLevelCm || 100).color }}>
+                  { severityFromWaterLevel(z.waterLevelCm || 100).label}
                 </span>
                 {isEvacuate && (
                   <div className="mt-2 px-2 py-1.5 bg-red-100 border border-red-300 rounded text-[11px] font-bold text-red-700">

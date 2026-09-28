@@ -291,16 +291,62 @@ export const RISK_META = {
 // =========================================================
 // Water Level → Severity (ใช้ใน community system)
 // =========================================================
-// น้ำ > 100 cm -> วิกฤต/อพยพ
-// น้ำ 60-100 cm -> วิกฤต/สัญจรไม่ได้
-// น้ำ 30-60 cm -> สัญจรลำบาก/เฝ้าระวัง
-// น้ำ 10-30 cm -> ระวัง
-// น้ำ < 10 cm -> ปกติ
+// =========================================================
+// Water Level → Status (4 ระดับมาตรฐาน)
+// =========================================================
+// < 10 cm       → "ปกติ"        (เขียว)
+// 11-50 cm      → "สัญจรลำบาก"   (เหลือง/Amber)
+// 51-80 cm      → "สัญจรไม่ได้"   (ส้ม)
+// >= 81 cm      → "อพยพ"        (แดง)
+//
+// Tailwind class สำหรับ Badge (พร้อม bg + text + border):
 export function severityFromWaterLevel(cm) {
   const v = Number(cm)
-  if (v >= 100) return { severity: 'critical', label: '🚨 อพยพ / วิกฤต',  color: '#B91C1C' }
-  if (v >= 60)  return { severity: 'danger',   label: '⚠️ สัญจรไม่ได้ / วิกฤต', color: '#DC2626' }
-  if (v >= 30)  return { severity: 'watch',    label: '🟡 สัญจรลำบาก / เฝ้าระวัง', color: '#EA580C' }
-  if (v >= 10)  return { severity: 'caution',  label: 'ระดับข้อเท้า',       color: '#F59E0B' }
-  return { severity: 'safe', label: 'ปกติ', color: '#10B981' }
+
+  if (v >= 81) {
+    // อพยพ — แดง
+    return {
+      severity: 'critical',
+      label: 'อพยพ',
+      labelLong: '🚨 อพยพ',
+      color: '#DC2626',
+      bg: 'bg-red-100',
+      text: 'text-red-800',
+      border: 'border-red-300',
+    }
+  }
+  if (v >= 51) {
+    // สัญจรไม่ได้ — ส้ม
+    return {
+      severity: 'danger',
+      label: 'สัญจรไม่ได้',
+      labelLong: '⚠️ สัญจรไม่ได้',
+      color: '#EA580C',
+      bg: 'bg-orange-100',
+      text: 'text-orange-800',
+      border: 'border-orange-300',
+    }
+  }
+  if (v >= 11) {
+    // สัญจรลำบาก — เหลือง/Amber
+    return {
+      severity: 'watch',
+      label: 'สัญจรลำบาก',
+      labelLong: '🟡 สัญจรลำบาก',
+      color: '#CA8A04',
+      bg: 'bg-amber-100',
+      text: 'text-amber-800',
+      border: 'border-amber-300',
+    }
+  }
+  // < 10 — ปกติ (เขียว)
+  return {
+    severity: 'safe',
+    label: 'ปกติ',
+    labelLong: '✅ ปกติ',
+    color: '#10B981',
+    bg: 'bg-emerald-100',
+    text: 'text-emerald-800',
+    border: 'border-emerald-300',
+  }
 }

@@ -3,12 +3,12 @@ import { X, Megaphone, MapPin, Droplets, User, Phone, Lock, CheckCircle2, Crossh
 import { BKK_DISTRICTS, PERIMETER_PROVINCES, severityFromWaterLevel } from '../data/bangkok'
 import { addIncident } from '../services/incidentSystem'
 
-// ระดับน้ำ guide presets
+// ระดับน้ำ guide presets — ตรงกับมาตรฐาน 4 ระดับ (<10 / 11-50 / 51-80 / ≥81)
 const WATER_LEVEL_PRESETS = [
-  { cm: 15,  label: '10–20 ซม.', desc: 'ระดับข้อเท้า / รถผ่านได้ปกติ', color: '#F59E0B' },
-  { cm: 40,  label: '30–50 ซม.', desc: 'ระดับหน้าแข้ง-หัวเข่า / รถเล็กควรระวัง', color: '#EA580C' },
-  { cm: 70,  label: '60–80 ซม.', desc: 'ระดับเอว / สัญจรลำบาก / เฝ้าระวัง', color: '#DC2626' },
-  { cm: 120, label: '100 ซม. ขึ้นไป', desc: 'ระดับอก-คอ / วิกฤต / แนะนำอพยพ', color: '#B91C1C' },
+  { cm: 15,  label: '10–20 ซม.', desc: 'ระดับข้อเท้า / รถผ่านได้ปกติ',         color: '#10B981' },
+  { cm: 40,  label: '30–50 ซม.', desc: 'ระดับหน้าแข้ง-หัวเข่า / รถเล็กควรระวัง', color: '#CA8A04' },
+  { cm: 65,  label: '51–80 ซม.', desc: 'ระดับเอว / สัญจรไม่ได้',                color: '#EA580C' },
+  { cm: 100, label: '≥81 ซม.',  desc: 'ระดับอก-คอ / อพยพ / วิกฤต',           color: '#DC2626' },
 ]
 
 export default function IncidentReportModal({ onClose, onSubmitted, currentUser }) {
