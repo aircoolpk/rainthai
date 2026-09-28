@@ -90,49 +90,23 @@ export function saveSOSCases(cases) {
   try { localStorage.setItem(SOS_STORE_KEY, JSON.stringify(cases)) } catch {}
 }
 
-// Seed เริ่มต้น — แปลงจาก SOS_REPORTS mockup + เพิ่ม auto-expire
+// Seed เริ่มต้น — ไม่มี mockup (ดึงเฉพาะเคสจริงจากผู้ใช้)
+// ล้าง localStorage เก่าที่อาจมี mockup ค้างไว้ (migrate)
 export function seedSOSCases() {
-  const existing = loadSOSCases()
-  if (existing.length > 0) return existing
-
-  const now = Date.now()
-  const seed = [
-    // ค่าเก่าเกิน 24 ชม. (auto-resolved)
-    {
-      id: 'sos-old-1',
-      lat: 13.76, lon: 100.50,
-      name: 'น้ำท่วมบ้านพักอาศัย (เก่า)',
-      people: 3, contact: '081-111-2222',
-      district: 'bkk-pkn',
-      note: 'เคสเก่าเกิน 24 ชม. รอการยืนยัน',
-      reportedAt: new Date(now - 26 * 60 * 60 * 1000).toISOString(),
-      status: 'auto-resolved',
-    },
-    // เคส 2 ชั่วโมงก่อน
-    {
-      id: 'sos-recent-1',
-      lat: 13.7600, lon: 100.7350,
-      name: 'ผู้ประสบภัยติดอยู่ในบ้าน',
-      people: 4, contact: '081-234-5678',
-      district: 'bkk-rkl',
-      note: 'น้ำท่วมสูงถึงชั้น 2 ต้องการเรือช่วยเหลือด่วน',
-      reportedAt: new Date(now - 2 * 60 * 60 * 1000).toISOString(),
-      status: 'active',
-    },
-    // เคส 30 นาทีก่อน
-    {
-      id: 'sos-recent-2',
-      lat: 13.8150, lon: 100.5680,
-      name: 'รถจมน้ำ-ติดในรถ',
-      people: 1, contact: '086-555-1234',
-      district: 'bkk-jtc',
-      note: 'รถติดอยู่กลางถนนวิภาวดีฯ น้ำท่วมครึ่งคัน',
-      reportedAt: new Date(now - 30 * 60 * 1000).toISOString(),
-      status: 'active',
-    },
-  ]
-  saveSOSCases(seed)
-  return seed
+  try {
+    const existing = loadSOSCases()
+    // ถ้า localStorage มีแต่เป็น mockup เดิม → ลบทิ้ง
+    const onlyMocks = existing.length > 0 && existing.every((c) =>
+      ['sos-old-1', 'sos-recent-1', 'sos-recent-2'].includes(c.id)
+    )
+    if (onlyMocks) {
+      try { localStorage.removeItem(SOS_STORE_KEY) } catch {}
+      return []
+    }
+    return Array.isArray(existing) ? existing : []
+  } catch {
+    return []
+  }
 }
 
 // Auto-resolve เคสเกิน 24 ชม. ตาม Logic

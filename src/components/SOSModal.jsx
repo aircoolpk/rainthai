@@ -144,8 +144,16 @@ export default function SOSModal({ onClose, onJumpToFlood, onOpenVote, currentUs
                 เคสที่กำลังรอ ({live.length})
               </h3>
               {live.length === 0 ? (
-                <div className="text-xs text-slate-400 py-6 text-center bg-slate-50 rounded-lg">
-                  ✅ ขณะนี้ไม่มีเคสค้าง — ทุกคนปลอดภัย
+                <div className="text-sm text-slate-700 py-6 px-4 text-center bg-gradient-to-br from-emerald-50 to-sky-50 rounded-lg border border-emerald-200">
+                  <div className="text-3xl mb-2">✅</div>
+                  <div className="font-semibold text-emerald-700 mb-2">
+                    ยังไม่มีรายการขอความช่วยเหลือฉุกเฉินในขณะนี้
+                  </div>
+                  <div className="text-xs text-slate-600 leading-relaxed">
+                    หากต้องการความช่วยเหลือด่วน สามารถกดปุ่ม
+                    <span className="font-bold text-red-600"> "🚨 กดขอความช่วยเหลือ"</span> ได้ทันที
+                    และกรุณาเข้ามาอัปเดตสถานะหากได้รับการช่วยเหลือเรียบร้อยแล้ว
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-2">

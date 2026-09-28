@@ -13,6 +13,10 @@ import {
 import {
   loadIncidents, seedIncidents, autoCleanIncidents, voteIncident,
 } from './services/incidentSystem'
+import {
+  getAllDistrictsWeather, refreshAllDistrictsWeather,
+  WEATHER_CACHE_TTL_MS,
+} from './services/weatherCache'
 import { useAuth } from './AuthContext.jsx'
 
 import Header                  from './components/Header.jsx'
@@ -87,13 +91,44 @@ export default function App() {
   // Flood report filter tab
   const [reportFilter, setReportFilter] = useState('all') // 'all' | 'road' | 'housing'
 
-  // ---------- load weather ----------
-  const load = useCallback(async () => {
+  // ---------- load weather (5-minute cache for districts, fresh fetch for provinces) ----------
+  const load = useCallback(async (opts = {}) => {
     setLoading(true)
     try {
-      const result = await fetchAllProvinces(THAI_PROVINCES)
-      setProvinces(result)
-      setLastUpdated(new Date().toISOString())
+      // ดึง provinces (Open-Meteo) — ต่างจังหวัด
+      const provincesPromise = fetchAllProvinces(THAI_PROVINCES)
+        .then((result) => {
+          const safe = Array.isArray(result) ? result : []
+          setProvinces(safe)
+          return safe
+        })
+        .catch((e) => {
+          console.warn('[load] provinces fetch failed:', e)
+          return []
+        })
+
+      // ดึง districts (กทม. + ปริมณฑล) — ใช้ cache 5 นาที
+      // opts.force = true เมื่อกดปุ่ม "อัปเดตข้อมูลสด"
+      const districtsPromise = getAllDistrictsWeather({ force: !!opts.force })
+        .then(({ data, timestamp }) => {
+          const safe = Array.isArray(data) ? data : []
+          // merge เข้า provinces (กทม + ปริมณฑล + ต่างจังหวัด)
+          setProvinces((prev) => {
+            const prevArr = Array.isArray(prev) ? prev : []
+            // กัน duplicate id (ถ้ามี)
+            const map = new Map()
+            ;[...safe, ...prevArr].forEach((it) => { if (it && it.id) map.set(it.id, it) })
+            return Array.from(map.values())
+          })
+          setLastUpdated(new Date(timestamp))
+        })
+        .catch((e) => {
+          console.warn('[load] districts weather failed:', e)
+        })
+
+      await Promise.allSettled([provincesPromise, districtsPromise])
+      // ถ้า cache timestamp ไม่ได้อัปเดต → set now
+      setLastUpdated((cur) => cur || new Date().toISOString())
     } finally {
       setLoading(false)
     }
@@ -125,15 +160,15 @@ export default function App() {
       }
     }
     const refetchWeather = () => {
-      // ดึงข้อมูล Open-Meteo + สถานะ SOS/Incidents ใหม่
+      // ดึงข้อมูล Open-Meteo + สถานะ SOS/Incidents ใหม่ (cache 5 นาทีสำหรับ districts)
       tickIncident()
       tickSOS()
-      load()
+      load({ force: true })
     }
 
-    // ทำงานครั้งแรกหลัง mount (เลื่อน 15 นาที เพื่อไม่ให้รีเฟรชทันที)
-    const FIFTEEN_MIN = 15 * 60 * 1000
-    const t = setInterval(refetchWeather, FIFTEEN_MIN)
+    // ทำงานครั้งแรกหลัง mount (auto-refresh ทุก 5 นาที — districts ใช้ cache)
+    const FIVE_MIN = WEATHER_CACHE_TTL_MS // 5 * 60 * 1000
+    const t = setInterval(refetchWeather, FIVE_MIN)
 
     // Tick status ทุก 60 วินาที (เพื่อ update "รอมาแล้ว X นาที" และ check expiry)
     const tickShort = setInterval(() => {
@@ -347,7 +382,8 @@ export default function App() {
       setIncidents(cleanArray)
 
       // รอ Open-Meteo fetch เสร็จ (catch error แยก — ไม่ให้พังทั้งหน้า)
-      await Promise.allSettled(promises)
+      // force = true เพื่อ bypass cache 5 นาที
+      await load({ force: true })
       setLastRefreshAt(new Date())
     } catch (err) {
       console.error('[refreshReports] failed:', err)
@@ -620,7 +656,7 @@ export default function App() {
                 <span className="text-slate-300">|</span>
                 <span className="inline-flex items-center gap-1 text-slate-500">
                   อัปเดตล่าสุด: <b className="text-slate-700">{lastRefreshAt.toLocaleTimeString('th-TH')}</b>
-                  <span className="text-[10px] text-slate-400">⏱️ auto 15 นาที</span>
+                  <span className="text-[10px] text-slate-400">⏱️ auto 5 นาที (cache) · force = manual</span>
                 </span>
               </div>
             </div>
@@ -718,8 +754,16 @@ export default function App() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {(!Array.isArray(sosPageItems) || sosPageItems.length === 0) ? (
-              <div className="col-span-full text-center text-sm text-emerald-600 py-6 bg-white/60 rounded-lg">
-                ✅ ขณะนี้ไม่มีเคส SOS ค้าง — ทุกคนปลอดภัย
+              <div className="col-span-full text-center py-8 px-4 bg-gradient-to-br from-emerald-50 to-sky-50 rounded-xl border border-emerald-200">
+                <div className="text-4xl mb-3">✅</div>
+                <div className="text-base font-bold text-emerald-700 mb-2">
+                  ยังไม่มีรายการขอความช่วยเหลือฉุกเฉินในขณะนี้
+                </div>
+                <div className="text-xs text-slate-600 leading-relaxed max-w-md mx-auto">
+                  หากต้องการความช่วยเหลือด่วน สามารถกดปุ่ม
+                  <span className="font-bold text-red-600"> "🚨 กดขอความช่วยเหลือ"</span> ได้ทันที
+                  และกรุณาเข้ามาอัปเดตสถานะหากได้รับการช่วยเหลือเรียบร้อยแล้ว
+                </div>
               </div>
             ) : sosPageItems.map((c) => (
               <SOSCaseCard
