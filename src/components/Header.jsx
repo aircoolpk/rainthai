@@ -26,11 +26,12 @@ export default function Header({
         {/* Right: actions */}
         <div className="flex items-center gap-2 md:gap-3">
           {lastUpdated && (
-            <div className="hidden lg:block text-xs text-slate-500">
+            <div className="hidden lg:block text-xs text-slate-500" title="ข้อมูลดึงจาก Open-Meteo / OSM · รีเฟรชอัตโนมัติทุก 15 นาที">
               อัปเดตล่าสุด: :{' '}
               <span className="font-medium text-slate-700">
                 {new Date(lastUpdated).toLocaleTimeString('th-TH')}
               </span>
+              <span className="ml-1 text-[10px] text-slate-400">⏱️ auto · 15 นาที</span>
             </div>
           )}
           {onResetView && (

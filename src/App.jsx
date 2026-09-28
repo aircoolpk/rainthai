@@ -97,10 +97,13 @@ export default function App() {
 
   useEffect(() => { load() }, [load])
 
-  // Auto-tick SOS + auto-clean incidents every 60s
+  // Auto-tick + auto-refetch every 15 minutes:
+  //   - tickSOS: re-evaluate 24h expiry on local SOS cases
+  //   - tickIncidents: auto-clean expired incidents, refresh state
+  //   - load(): refetch Open-Meteo weather data for all provinces
   useEffect(() => {
-    const tick = () => {
-      setSCases(applyAutoExpire(loadSOSCases()))
+    const tickSOS      = () => setSCases(applyAutoExpire(loadSOSCases()))
+    const tickIncident = () => {
       const wByDist = BKK_DISTRICTS.reduce((acc, d) => {
         acc[d.id] = { rain24h: d.rain24h }
         return acc
@@ -108,9 +111,28 @@ export default function App() {
       const { filtered } = autoCleanIncidents(loadIncidents(), wByDist)
       setIncidents(filtered)
     }
-    const t = setInterval(tick, 60 * 1000)
-    return () => clearInterval(t)
-  }, [])
+    const refetchWeather = () => {
+      // ดึงข้อมูล Open-Meteo + สถานะ SOS/Incidents ใหม่
+      tickIncident()
+      tickSOS()
+      load()
+    }
+
+    // ทำงานครั้งแรกหลัง mount (เลื่อน 15 นาที เพื่อไม่ให้รีเฟรชทันที)
+    const FIFTEEN_MIN = 15 * 60 * 1000
+    const t = setInterval(refetchWeather, FIFTEEN_MIN)
+
+    // Tick status ทุก 60 วินาที (เพื่อ update "รอมาแล้ว X นาที" และ check expiry)
+    const tickShort = setInterval(() => {
+      tickSOS()
+      tickIncident()
+    }, 60 * 1000)
+
+    return () => {
+      clearInterval(t)
+      clearInterval(tickShort)
+    }
+  }, [load])
 
   useEffect(() => {
     setPageSos(1)
@@ -164,22 +186,39 @@ export default function App() {
       reporter: i.reporter,
       anonymous: i.anonymous,
       lastActivityAt: i.lastActivityAt,
+      lastUpdatedAt: i.lastActivityAt || i.submittedAt,
       severity: i.severity,
       raw: i,
     }))
-    const apiItems = FLOOD_REPORTS.map((f) => ({
-      ...f,
-      waterLevelCm: parseFloat(f.waterLevel) || 0,
-      source: 'api',
-      sourceLabel: 'Open-Meteo/OSM',
-      // map category: ถ้า name มี "ชุมชน" หรือ "บ้าน" หรือ "ที่อยู่อาศัย" => housing
-      category: /ชุมชน|บ้าน|ที่อยู่อาศัย|ท่วมที่อยู่|หลังคา|อาคาร|อพยพ/i.test(f.name || '') ? 'housing' : 'road',
-      severity: f.severity,
-      raw: f,
-    }))
+    const apiItems = FLOOD_REPORTS.map((f) => {
+      // แปลง reportedAt (string '2026-09-28 08:30') → ISO เพื่อให้ sort ถูกต้อง
+      // ใช้ Date ตีความ 'YYYY-MM-DD HH:mm' (Bangkok)
+      let isoTime = f.reportedAt
+      try {
+        const m = /^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/.exec(f.reportedAt || '')
+        if (m) {
+          const [_, y, mo, d, h, mi] = m
+          isoTime = new Date(+y, +mo - 1, +d, +h, +mi).toISOString()
+        }
+      } catch {}
+      return {
+        ...f,
+        waterLevelCm: parseFloat(f.waterLevel) || 0,
+        source: 'api',
+        sourceLabel: 'Open-Meteo/OSM',
+        // map category: ถ้า name มี "ชุมชน" / "บ้าน" / "ที่อยู่อาศัย" / "อพยพ" → housing
+        category: /ชุมชน|บ้าน|ที่อยู่อาศัย|ท่วมที่อยู่|หลังคา|อาคาร|อพยพ/i.test(f.name || '') ? 'housing' : 'road',
+        severity: f.severity,
+        // ใส่ทั้ง lastUpdatedAt + lastActivityAt ให้ตรงกัน → ใช้ sort field เดียวกัน
+        lastUpdatedAt: isoTime,
+        lastActivityAt: isoTime,
+        raw: f,
+      }
+    })
+    // Sort by lastUpdatedAt (descending — ใหม่สุดขึ้นก่อน) — single source of truth
     return [...incidentItems, ...apiItems].sort((a, b) => {
-      const ta = new Date(a.lastActivityAt || a.reportedAt).getTime()
-      const tb = new Date(b.lastActivityAt || b.reportedAt).getTime()
+      const ta = new Date(a.lastUpdatedAt || 0).getTime()
+      const tb = new Date(b.lastUpdatedAt || 0).getTime()
       return tb - ta
     })
   }, [incidents])
