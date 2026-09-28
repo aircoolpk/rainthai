@@ -554,11 +554,39 @@ export default function App() {
           </div>
         </section>
 
-        <footer className="text-center text-xs text-slate-500 py-4">
-          rainthai · React + Vite + Leaflet · tile จาก{' '}
-          <a className="text-sky-600 hover:underline" href="https://www.openstreetmap.org/" target="_blank" rel="noreferrer">OpenStreetMap</a>
-          {' '}· ข้อมูลจาก{' '}
-          <a className="text-sky-600 hover:underline" href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo</a>
+        {/* ===== Footer (ส่วนล่างสุดของเว็บไซต์) ===== */}
+        <footer className="mt-8 border-t border-slate-200 bg-white/60 backdrop-blur">
+          <div className="max-w-[1500px] mx-auto px-4 md:px-6 py-6">
+            <div className="flex flex-col items-center gap-2 text-center">
+              <div className="text-sm md:text-base font-semibold text-slate-700">
+                Dev by <span className="text-sky-700">Peerawit K.</span>
+              </div>
+              <div className="text-xs md:text-sm text-slate-600">
+                rainthai <span className="text-slate-400 mx-1">·</span> React + Vite + Leaflet
+              </div>
+              <div className="text-[11px] md:text-xs text-slate-500 flex flex-wrap items-center justify-center gap-x-1.5 gap-y-0.5">
+                <span>tile จาก</span>
+                <a
+                  className="text-sky-600 hover:text-sky-700 hover:underline font-medium"
+                  href="https://www.openstreetmap.org/"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  OpenStreetMap
+                </a>
+                <span className="text-slate-400 mx-0.5">·</span>
+                <span>ข้อมูลจาก</span>
+                <a
+                  className="text-sky-600 hover:text-sky-700 hover:underline font-medium"
+                  href="https://open-meteo.com/"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open-Meteo
+                </a>
+              </div>
+            </div>
+          </div>
         </footer>
       </main>
 
