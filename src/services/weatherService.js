@@ -4,8 +4,70 @@ import { THAI_PROVINCES } from '../data/provinces'
 // หมายเหตุ: หน่วย precipitation ที่ใช้คือ millimeters
 const BASE_URL = 'https://api.open-meteo.com/v1/forecast'
 
+// =========================================================
+// Rate-limit safety knobs
+// =========================================================
+// จำกัดจำนวน concurrent requests ไป Open-Meteo — ป้องกัน 429 burst
+const MAX_CONCURRENT = 4
+// Retry config สำหรับ 429 / network errors
+const MAX_RETRIES        = 2
+const INITIAL_BACKOFF_MS = 1500  // 1.5s → 3s → 6s (exponential)
+// Minimum interval ระหว่าง request ติดๆ (global throttle)
+const MIN_REQUEST_GAP_MS = 250
+
+let _activeCount  = 0
+let _nextSlotAt   = 0
+const _waitQueue  = []
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 /**
- * ดึงข้อมูลฝนสำหรับจังหวัดเดียว
+ * รอจนกว่าจะมี "slot" ว่าง (concurrent < MAX_CONCURRENT) และถึงเวลา throttle
+ * — ใช้คิวแทนการ fire พร้อมกัน เพื่อกัน 429 burst
+ */
+async function acquireSlot() {
+  // 1) Throttle — เว้นช่องว่างอย่างน้อย MIN_REQUEST_GAP_MS ระหว่าง request
+  const now = Date.now()
+  if (_nextSlotAt > now) {
+    await sleep(_nextSlotAt - now)
+  }
+  _nextSlotAt = Date.now() + MIN_REQUEST_GAP_MS
+
+  // 2) Concurrency gate — ถ้าเต็ม ให้รอคิว
+  if (_activeCount >= MAX_CONCURRENT) {
+    await new Promise((resolve) => _waitQueue.push(resolve))
+  }
+  _activeCount += 1
+}
+
+function releaseSlot() {
+  _activeCount = Math.max(0, _activeCount - 1)
+  const next = _waitQueue.shift()
+  if (next) next()
+}
+
+/**
+ * Parse "Retry-After" header (seconds หรือ HTTP date) → ms
+ * คืน null ถ้า parse ไม่ได้
+ */
+function parseRetryAfter(value) {
+  if (!value) return null
+  const asInt = parseInt(value, 10)
+  if (!Number.isNaN(asInt) && String(asInt) === String(value).trim()) {
+    return asInt * 1000
+  }
+  const dateMs = Date.parse(value)
+  if (!Number.isNaN(dateMs)) {
+    return Math.max(0, dateMs - Date.now())
+  }
+  return null
+}
+
+/**
+ * ดึงข้อมูลฝนสำหรับจังหวัดเดียว — พร้อม 429-aware retry
+ * @throws {Error} rate_limited | network | http_<status>
  */
 export async function fetchProvinceWeather(province) {
   const params = new URLSearchParams({
@@ -24,29 +86,103 @@ export async function fetchProvinceWeather(province) {
   })
 
   const url = `${BASE_URL}?${params.toString()}`
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`Open-Meteo error ${res.status}`)
-  const data = await res.json()
-  return shapeWeather(province, data)
+
+  let lastError = null
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
+    await acquireSlot()
+    let res
+    try {
+      res = await fetch(url)
+    } catch (e) {
+      releaseSlot()
+      lastError = new Error(`network: ${e?.message || 'fetch failed'}`)
+    } finally {
+      // releaseSlot ถูกเรียกใน try/catch ด้านบนแล้ว — ปลอดภัย
+    }
+    // กรณี fetch throw แต่อยู่นอก try/catch ให้ rethrow
+    // (โค้ดข้างบน releaseSlot ไปแล้ว — ป้องกัน slot ค้าง)
+
+    // ถ้า fetch สำเร็จ (res defined)
+    if (res !== undefined) {
+      if (res.ok) {
+        releaseSlot()
+        try {
+          const data = await res.json()
+          return shapeWeather(province, data)
+        } catch (e) {
+          throw new Error(`parse: ${e?.message || 'invalid json'}`)
+        }
+      }
+
+      releaseSlot()
+
+      // 429 → รอ Retry-After (ถ้ามี) แล้วลองใหม่
+      if (res.status === 429) {
+        const retryAfterMs = parseRetryAfter(res.headers.get('Retry-After'))
+        const backoff = retryAfterMs !== null
+          ? retryAfterMs
+          : INITIAL_BACKOFF_MS * Math.pow(2, attempt)
+        const err = new Error(`Open-Meteo 429 Too Many Requests (attempt ${attempt + 1}/${MAX_RETRIES + 1})`)
+        err.status = 429
+        err.retryAfterMs = backoff
+        lastError = err
+        if (attempt < MAX_RETRIES) {
+          console.warn(`[weatherService] 429 on ${province.id}, backing off ${backoff}ms`)
+          await sleep(backoff)
+          continue
+        }
+        throw err
+      }
+
+      // 5xx → retry ด้วย exponential backoff
+      if (res.status >= 500 && attempt < MAX_RETRIES) {
+        const backoff = INITIAL_BACKOFF_MS * Math.pow(2, attempt)
+        lastError = new Error(`Open-Meteo ${res.status}`)
+        lastError.status = res.status
+        console.warn(`[weatherService] ${res.status} on ${province.id}, backing off ${backoff}ms`)
+        await sleep(backoff)
+        continue
+      }
+
+      // 4xx (อื่นๆ) — ไม่ retry
+      throw new Error(`Open-Meteo ${res.status}`)
+    }
+
+    // กรณี network error → retry
+    if (attempt < MAX_RETRIES) {
+      const backoff = INITIAL_BACKOFF_MS * Math.pow(2, attempt)
+      console.warn(`[weatherService] network on ${province.id}, backing off ${backoff}ms`)
+      await sleep(backoff)
+      continue
+    }
+  }
+
+  throw lastError || new Error('Open-Meteo: unknown failure')
 }
 
 /**
- * ดึงข้อมูลฝนสำหรับหลายจังหวัดพร้อมกัน
+ * ดึงข้อมูลฝนสำหรับหลายจังหวัดพร้อมกัน (throttled + parallel)
+ * — ใช้ Promise.allSettled → province ที่ fail จะไม่ทำให้ทั้งก้อนพัง
+ * — แต่ละ province ยังมี per-call retry/backoff ของตัวเอง
  */
 export async function fetchAllProvinces(provinces = THAI_PROVINCES) {
+  if (!Array.isArray(provinces) || provinces.length === 0) return []
+
   const settled = await Promise.allSettled(
     provinces.map((p) => fetchProvinceWeather(p)),
   )
   return settled.map((r, i) => {
     if (r.status === 'fulfilled') return r.value
+    const province = provinces[i]
     return {
-      id: provinces[i].id,
-      name: provinces[i].name,
-      lat: provinces[i].lat,
-      lon: provinces[i].lon,
-      region: provinces[i].region,
-      amphure: provinces[i].amphure || [],
+      id: province.id,
+      name: province.name,
+      lat: province.lat,
+      lon: province.lon,
+      region: province.region,
+      amphure: province.amphure || [],
       error: r.reason?.message || 'fetch failed',
+      _status: r.reason?.status || null,
     }
   })
 }

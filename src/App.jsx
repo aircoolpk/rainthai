@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 
 import { THAI_PROVINCES, FLOOD_REPORTS, SEVERITY_META } from './data/provinces'
 import {
@@ -15,7 +15,8 @@ import {
 } from './services/incidentSystem'
 import {
   getAllDistrictsWeather, refreshAllDistrictsWeather,
-  WEATHER_CACHE_TTL_MS,
+  getAllProvincesWeather, refreshAllProvincesWeather,
+  WEATHER_CACHE_TTL_MS, WEATHER_PROVINCES_CACHE_TTL_MS,
 } from './services/weatherCache'
 import { useAuth } from './AuthContext.jsx'
 
@@ -91,25 +92,29 @@ export default function App() {
   // Flood report filter tab
   const [reportFilter, setReportFilter] = useState('all') // 'all' | 'road' | 'housing'
 
-  // ---------- load weather (5-minute cache for districts, fresh fetch for provinces) ----------
+  // ---------- load weather (smart caching for both provinces + districts) ----------
+  // - provinces (ต่างจังหวัด 76 จังหวัด): cache 15 นาที — ป้องกัน 429 จาก burst requests
+  // - districts (กทม. + ปริมณฑล): cache 10 นาที
+  // - opts.force / opts.forceRefresh = true → บังคับ fetch ใหม่ (manual refresh button)
   const load = useCallback(async (opts = {}) => {
     setLoading(true)
+    const force = !!(opts.force || opts.forceRefresh)
     try {
-      // ดึง provinces (Open-Meteo) — ต่างจังหวัด
-      const provincesPromise = fetchAllProvinces(THAI_PROVINCES)
-        .then((result) => {
-          const safe = Array.isArray(result) ? result : []
+      // ดึง provinces (Open-Meteo) — ใช้ cache 15 นาที
+      const provincesPromise = getAllProvincesWeather({ force })
+        .then(({ data }) => {
+          const safe = Array.isArray(data) ? data : []
           setProvinces(safe)
           return safe
         })
         .catch((e) => {
           console.warn('[load] provinces fetch failed:', e)
+          // ไม่ throw — UI ยังใช้ cache เก่าได้
           return []
         })
 
-      // ดึง districts (กทม. + ปริมณฑล) — ใช้ cache 5 นาที
-      // opts.force = true เมื่อกดปุ่ม "อัปเดตข้อมูลสด"
-      const districtsPromise = getAllDistrictsWeather({ force: !!opts.force })
+      // ดึง districts (กทม. + ปริมณฑล) — ใช้ cache 10 นาที
+      const districtsPromise = getAllDistrictsWeather({ force })
         .then(({ data, timestamp }) => {
           const safe = Array.isArray(data) ? data : []
           // merge เข้า provinces (กทม + ปริมณฑล + ต่างจังหวัด)
@@ -136,10 +141,10 @@ export default function App() {
 
   useEffect(() => { load() }, [load])
 
-  // Auto-tick + auto-refetch every 15 minutes:
+  // Auto-tick + auto-refetch:
   //   - tickSOS: re-evaluate 24h expiry on local SOS cases
   //   - tickIncidents: auto-clean expired incidents, refresh state
-  //   - load(): refetch Open-Meteo weather data for all provinces
+  //   - load(): refetch weather (จะถูก de-dup โดย cache ถ้ายังอยู่ใน TTL)
   useEffect(() => {
     const tickSOS      = () => {
       const next = applyAutoExpire(loadSOSCases())
@@ -160,15 +165,18 @@ export default function App() {
       }
     }
     const refetchWeather = () => {
-      // ดึงข้อมูล Open-Meteo + สถานะ SOS/Incidents ใหม่ (cache 5 นาทีสำหรับ districts)
+      // ดึงข้อมูล Open-Meteo + สถานะ SOS/Incidents ใหม่
+      // หมายเหตุ: load({ force: false }) — ถ้า cache ยังไม่หมดอายุจะใช้ cache เดิม
+      // แต่ถ้าหมดอายุจริงๆ จะ fetch ใหม่ (พร้อม cooldown protection)
       tickIncident()
       tickSOS()
-      load({ force: true })
+      load({ force: false })
     }
 
-    // ทำงานครั้งแรกหลัง mount (auto-refresh ทุก 5 นาที — districts ใช้ cache)
-    const FIVE_MIN = WEATHER_CACHE_TTL_MS // 5 * 60 * 1000
-    const t = setInterval(refetchWeather, FIVE_MIN)
+    // Auto-refresh ทุก 10 นาที (ตรงกับ districts TTL) — cache จะ de-dup ถ้ายังไม่หมดอายุ
+    // ถ้า fetch fail ครั้งก่อน → cooldown 60s → รอบถัดไปจะใช้ cache เดิมแทน
+    const AUTO_REFRESH_MS = WEATHER_CACHE_TTL_MS // 10 * 60 * 1000
+    const t = setInterval(refetchWeather, AUTO_REFRESH_MS)
 
     // Tick status ทุก 60 วินาที (เพื่อ update "รอมาแล้ว X นาที" และ check expiry)
     const tickShort = setInterval(() => {
@@ -359,13 +367,22 @@ export default function App() {
     // ---------- Manual refresh (Open-Meteo + Incidents) ----------
   const [refreshingReports, setRefreshingReports] = useState(false)
   const [lastRefreshAt, setLastRefreshAt] = useState(() => new Date())
+  const [refreshError, setRefreshError] = useState(null)
+  const lastManualRefreshRef = useRef(0)
 
   const handleRefreshReports = useCallback(async () => {
+    // Debounce — กัน user กดซ้ำเร็วๆ (ภายใน 1.5s)
+    const nowMs = Date.now()
+    if (nowMs - lastManualRefreshRef.current < 1500) {
+      console.warn('[refresh] debounced — too soon since last manual refresh')
+      return
+    }
     if (refreshingReports) return
+    lastManualRefreshRef.current = nowMs
+
     setRefreshingReports(true)
+    setRefreshError(null)
     try {
-      // ดึง incidents ใหม่ + weather data (Open-Meteo) พร้อมกัน
-      const promises = [load()]
       const wByDist = BKK_DISTRICTS.reduce((acc, d) => {
         acc[d.id] = { rain24h: d.rain24h }
         return acc
@@ -381,13 +398,26 @@ export default function App() {
       }
       setIncidents(cleanArray)
 
-      // รอ Open-Meteo fetch เสร็จ (catch error แยก — ไม่ให้พังทั้งหน้า)
-      // force = true เพื่อ bypass cache 5 นาที
-      await load({ force: true })
-      setLastRefreshAt(new Date())
+      // รอ weather fetch — bypass cooldown (manual = intentional)
+      // ถ้า fetch fail → load() จะคืน cache เก่าแทน (ไม่ throw)
+      // force=true + bypassCooldown=true เพื่อให้ user ได้ข้อมูลสดจริงๆ เมื่อกดปุ่ม
+      try {
+        await Promise.all([
+          refreshAllProvincesWeather({ bypassCooldown: true }),
+          refreshAllDistrictsWeather({ bypassCooldown: true }),
+        ])
+        // load() อ่าน state ปัจจุบันเข้า provinces
+        await load({ force: true })
+        setLastRefreshAt(new Date())
+      } catch (err) {
+        // แม้ fetch fail → load() ภายใน cache layer จะ fallback คืน cache เก่า
+        // ดังนั้น UI ยังแสดงข้อมูลได้ — แค่เก็บ error ไว้แสดงเป็น banner เตือน
+        console.warn('[refreshReports] fetch failed (using stale cache):', err?.message)
+        setRefreshError(err?.message || 'fetch failed — ใช้ข้อมูล cache ล่าสุดแทน')
+      }
     } catch (err) {
-      console.error('[refreshReports] failed:', err)
-      // ไม่ throw — UI ยังใช้งานได้
+      console.error('[refreshReports] unexpected error:', err)
+      setRefreshError(err?.message || 'unexpected error')
     } finally {
       // หน่วงเวลาเล็กน้อยเพื่อให้ UI เห็น animation
       setTimeout(() => setRefreshingReports(false), 350)
@@ -656,9 +686,26 @@ export default function App() {
                 <span className="text-slate-300">|</span>
                 <span className="inline-flex items-center gap-1 text-slate-500">
                   อัปเดตล่าสุด: <b className="text-slate-700">{lastRefreshAt.toLocaleTimeString('th-TH')}</b>
-                  <span className="text-[10px] text-slate-400">⏱️ auto 5 นาที (cache) · force = manual</span>
+                  <span className="text-[10px] text-slate-400">⏱️ auto 10 นาที (cache) · force = manual</span>
                 </span>
               </div>
+              {refreshError && (
+                <div
+                  role="alert"
+                  className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-1.5 inline-flex items-center gap-2"
+                  title="Open-Meteo API ตอบสนองช้า/ผิดพลาด — ระบบใช้ข้อมูล cache ล่าสุดแทน"
+                >
+                  <span>⚠️</span>
+                  <span>ใช้ข้อมูล cache แทน: {refreshError}</span>
+                  <button
+                    onClick={() => setRefreshError(null)}
+                    className="ml-1 text-amber-900 hover:text-amber-700 font-bold"
+                    aria-label="ปิด"
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <button
