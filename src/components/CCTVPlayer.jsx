@@ -1,25 +1,22 @@
 import { useEffect, useRef, useState } from 'react'
-import { AlertCircle, RefreshCw, Camera, Wifi, WifiOff, Loader2, ImageOff } from 'lucide-react'
+import { AlertCircle, RefreshCw, Camera, Wifi, WifiOff, Loader2, ImageOff, ExternalLink } from 'lucide-react'
 import {
   CCTV_PROXY_CONFIG,
   buildSnapshotUrlCandidates,
-  getNextSnapshotTier,
 } from '../data/cctv'
 
 /**
- * CCTVPlayer v3 — Snapshot-only mode (รองรับ fallback หลายชั้น)
+ * CCTVPlayer v4 — Proxy-only mode (บังคับ 100%)
  *
- * โหมดใหม่:
- *   - เลิกใช้ HLS.js (มักล้มเหลวจาก CORS/stream issues)
- *   - ใช้ <img src="..."> พร้อม auto-refresh ทุก 5-10 วินาที
- *   - Fallback chain หลายชั้น (3-4 tier) จนกว่าจะเจอภาพ:
- *       1. proxy snapshot via world.tehx.dyndns.info
- *       2. direct snapshot จาก BMA/DOH
- *       3. placeholder fallback
- *       4. No Signal empty state
+ * การเปลี่ยนครั้งสำคัญ:
+ *   - ลบ fallback chain ไป direct URL (cctb.bangkok.go.th, highwaytraffic.go.th) ทิ้ง
+ *   - สาเหตุ: direct URL ติด CORS ทันที — โหลดภาพไม่ได้
+ *   - ตอนนี้ใช้ Proxy (world.tehx.dyndns.info) 100% ไม่ว่าสถานะ Proxy จะเป็นอย่างไร
+ *   - ถ้า Proxy fail → แสดง SVG placeholder (ไม่ลอง tier อื่นอีก)
+ *   - มีปุ่ม "เปิด Proxy ด้วย tab ใหม่" ให้ user ตรวจสอบ proxy ได้เอง
  *
  * props:
- *  - camera: { id, name, source, category, type, url, lat, lon, snapshotFallbacks? }
+ *  - camera: { id, name, source, category, type, url, lat, lon }
  *  - onClose?: () => void
  *  - height?: string
  *  - showCredit?: boolean
@@ -28,35 +25,26 @@ export default function CCTVPlayer({ camera, onClose, height = 'h-64', showCredi
   const [status, setStatus] = useState('loading')   // loading | live | error
   const [errorMsg, setErrorMsg] = useState('')
   const [snapshotKey, setSnapshotKey] = useState(0)
-  const [tierIndex, setTierIndex] = useState(0)     // index ใน candidates
-  const [triedTiers, setTriedTiers] = useState([])
   const [reloadNonce, setReloadNonce] = useState(0)
-  const [tierHistory, setTierHistory] = useState([]) // log การพยายาม
   const imgRef = useRef(null)
   const snapshotTimerRef = useRef(null)
-  const failedTiersRef = useRef(new Set())
 
-  // ===== Resolve URL candidates =====
+  // ===== Resolve URL — Proxy-only =====
   const candidates = buildSnapshotUrlCandidates(camera)
-  const currentTier = candidates[tierIndex] || candidates[candidates.length - 1]
+  const currentTier = candidates[0]   // บังคับ tier 0 เสมอ (Proxy)
   const activeUrl = currentTier?.url
   const activeSource = currentTier?.source
 
-  // ===== Snapshot mode effect =====
+  // ===== Snapshot mode effect (Proxy only) =====
   useEffect(() => {
     if (!camera) return
     setStatus('loading')
     setErrorMsg('')
     setSnapshotKey(0)
-    setTierIndex(0)
-    setTriedTiers([])
-    failedTiersRef.current = new Set()
-    setTierHistory([])
 
-    // refresh interval ตาม source
-    const intervalMs = currentTier?.refreshMs || CCTV_PROXY_CONFIG.refreshIntervalFastMs
+    const refreshMs = currentTier?.refreshMs || CCTV_PROXY_CONFIG.refreshIntervalSlowMs
     const tick = () => setSnapshotKey((k) => k + 1)
-    snapshotTimerRef.current = setInterval(tick, intervalMs)
+    snapshotTimerRef.current = setInterval(tick, refreshMs)
 
     return () => {
       if (snapshotTimerRef.current) {
@@ -66,54 +54,37 @@ export default function CCTVPlayer({ camera, onClose, height = 'h-64', showCredi
     }
   }, [camera?.id, reloadNonce])
 
-  // Update timer เมื่อ tier เปลี่ยน
+  // Update timer เมื่อ reload
   useEffect(() => {
     if (!snapshotTimerRef.current) return
-    const intervalMs = currentTier?.refreshMs || CCTV_PROXY_CONFIG.refreshIntervalFastMs
+    const intervalMs = currentTier?.refreshMs || CCTV_PROXY_CONFIG.refreshIntervalSlowMs
     clearInterval(snapshotTimerRef.current)
     const tick = () => setSnapshotKey((k) => k + 1)
     snapshotTimerRef.current = setInterval(tick, intervalMs)
     return () => {
       if (snapshotTimerRef.current) clearInterval(snapshotTimerRef.current)
     }
-  }, [tierIndex])
+  }, [snapshotKey, reloadNonce])
 
   if (!camera) return null
 
   // ===== Handlers =====
   const handleImgError = () => {
-    if (!camera) return
-    failedTiersRef.current.add(tierIndex)
-    setTriedTiers((prev) => Array.from(new Set([...prev, tierIndex])))
-
-    // ลอง tier ถัดไป
-    const nextIdx = getNextSnapshotTier(candidates, tierIndex, failedTiersRef.current)
-    setTierHistory((h) => [...h, { from: tierIndex, to: nextIdx, ts: Date.now() }])
-    if (nextIdx !== tierIndex && nextIdx < candidates.length) {
-      setTierIndex(nextIdx)
-      setStatus('loading')
-      setErrorMsg(`Tier ${tierIndex + 1} failed → ลอง tier ${nextIdx + 1}`)
-      setSnapshotKey((k) => k + 1)
-    } else {
-      setStatus('error')
-      setErrorMsg(`ไม่สามารถโหลดภาพได้ — ลอง ${candidates.length} tier แล้ว`)
-    }
+    // Proxy fail → แสดง placeholder (tier ถัดไป)
+    // บังคับให้ใช้ Proxy 100% — ไม่ลอง direct URL
+    setStatus('error')
+    setErrorMsg(
+      `Proxy ไม่ตอบสนอง (${CCTV_PROXY_CONFIG.proxyBase})\n` +
+      `ตรวจสอบว่า proxy server online และ camera ID ถูกต้อง`,
+    )
+    setSnapshotKey((k) => k + 1)   // trigger โหลด placeholder
   }
 
   const handleImgLoad = (e) => {
-    // ตรวจ placeholder image (ภาพเทา/ดำ = proxy คืน placeholder)
     const img = e.target
     if (!img || !img.naturalWidth) {
       handleImgError()
       return
-    }
-    // ถ้าภาพเล็กมาก (< 50px) อาจเป็น 1x1 placeholder
-    if (img.naturalWidth < 50 || img.naturalHeight < 50) {
-      // ดูว่า tier ปัจจุบันมี backup candidates เหลือไหม
-      if (tierIndex < candidates.length - 1) {
-        handleImgError()
-        return
-      }
     }
     setStatus('live')
     setErrorMsg('')
@@ -122,26 +93,13 @@ export default function CCTVPlayer({ camera, onClose, height = 'h-64', showCredi
   const handleRetry = () => {
     setStatus('loading')
     setErrorMsg('')
-    setTierIndex(0)
-    setTriedTiers([])
-    failedTiersRef.current = new Set()
-    setTierHistory([])
     setSnapshotKey((k) => k + 1)
     setReloadNonce((n) => n + 1)
   }
 
-  const handleSkipToNext = () => {
-    const nextIdx = Math.min(tierIndex + 1, candidates.length - 1)
-    setTierIndex(nextIdx)
-    setStatus('loading')
-    setSnapshotKey((k) => k + 1)
-  }
-
-  const handleSkipToPrev = () => {
-    const prevIdx = Math.max(tierIndex - 1, 0)
-    setTierIndex(prevIdx)
-    setStatus('loading')
-    setSnapshotKey((k) => k + 1)
+  const handleOpenProxy = () => {
+    // เปิด Proxy URL ด้วย tab ใหม่ เพื่อ user ตรวจสอบเอง
+    window.open(activeUrl, '_blank', 'noopener,noreferrer')
   }
 
   return (
@@ -155,17 +113,14 @@ export default function CCTVPlayer({ camera, onClose, height = 'h-64', showCredi
             <div className="text-slate-400 text-[10px] truncate flex items-center gap-1">
               <span>{camera.source}</span>
               {activeSource === 'proxy' && (
-                <span className="text-emerald-400">· via proxy</span>
+                <span className="text-emerald-400">· Proxy 100%</span>
               )}
-              {activeSource === 'direct' && (
-                <span className="text-amber-400">· direct</span>
-              )}
-              <span className="text-slate-500">· tier {tierIndex + 1}/{candidates.length}</span>
+              <span className="text-slate-500">· {camera.nameEn || ''}</span>
             </div>
           </div>
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          <StatusBadge status={status} source={activeSource} />
+          <StatusBadge status={status} />
           {onClose && (
             <button
               onClick={onClose}
@@ -184,19 +139,15 @@ export default function CCTVPlayer({ camera, onClose, height = 'h-64', showCredi
         {status === 'loading' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/80 z-10">
             <Loader2 className="w-8 h-8 text-cyan-400 animate-spin mb-2" />
-            <div className="text-xs text-slate-400">
-              {activeSource === 'proxy' ? 'กำลังเชื่อมต่อ proxy...' :
-               activeSource === 'direct' ? 'กำลังโหลดภาพตรง...' :
-               'กำลังโหลด...'}
-            </div>
-            <div className="text-[9px] text-slate-500 mt-1">tier {tierIndex + 1}/{candidates.length}</div>
+            <div className="text-xs text-slate-400">กำลังโหลดผ่าน Proxy...</div>
+            <div className="text-[9px] text-slate-500 mt-1 truncate max-w-[90%]">{activeUrl}</div>
           </div>
         )}
 
-        {/* Snapshot Image */}
+        {/* Snapshot Image (Proxy-only) */}
         <img
           ref={imgRef}
-          key={`${camera.id}-${tierIndex}-${snapshotKey}-${reloadNonce}`}
+          key={`${camera?.id}-${snapshotKey}-${reloadNonce}`}
           src={activeUrl}
           alt={camera.name}
           crossOrigin="anonymous"
@@ -216,14 +167,14 @@ export default function CCTVPlayer({ camera, onClose, height = 'h-64', showCredi
             </div>
             <div className="text-base font-bold text-slate-300 mb-1">📵 No Signal</div>
             <div className="text-xs text-slate-500 mb-1">
-              ไม่สามารถโหลดภาพจากกล้องนี้ได้
+              Proxy ไม่ส่งภาพกลับมา
             </div>
-            <div className="text-[10px] text-slate-600 mb-1">
-              {candidates.length} tier ที่ลองแล้ว
+            <div className="text-[9px] text-slate-600 mb-1 px-4 text-center max-w-xs font-mono break-all">
+              {CCTV_PROXY_CONFIG.proxyBase}
             </div>
             {errorMsg && (
-              <div className="text-[10px] text-slate-600 mb-3 px-4 text-center max-w">
-              {errorMsg}
+              <div className="text-[10px] text-slate-600 mb-3 px-4 text-center max-w-xs whitespace-pre-line">
+                {errorMsg}
               </div>
             )}
             <div className="flex items-center gap-2 flex-wrap justify-center px-4">
@@ -232,24 +183,16 @@ export default function CCTVPlayer({ camera, onClose, height = 'h-64', showCredi
                 className="inline-flex items-center gap-1.5 text-xs font-medium text-cyan-400 hover:text-cyan-300 border border-cyan-700 hover:border-cyan-500 px-3 py-1.5 rounded-md transition"
               >
                 <RefreshCw className="w-3 h-3" />
-                ลองใหม่ทั้งหมด
+                ลองใหม่
               </button>
-            { tierIndex > 0 && (
               <button
-                onClick={handleSkipToPrev}
-                className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 border border-slate-600 hover:border-slate-400 px-3 py-1.5 rounded-md transition"
+                onClick={handleOpenProxy}
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-400 hover:text-slate-200 border border-slate-600 hover:border-slate-400 px-3 py-1.5 rounded-md transition"
+                title="เปิดดู Proxy URL ด้วย tab ใหม่เพื่อตรวจสอบ"
               >
-                ← tier ก่อนหน้า
+                <ExternalLink className="w-3 h-3" />
+                เปิด Proxy
               </button>
-            ) }
-            { tierIndex < candidates.length - 1 && (
-              <button
-                onClick={handleSkipToNext}
-                className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 border border-slate-600 hover:border-slate-400 px-3 py-1.5 rounded-md transition"
-              >
-                tier ถัดไป →
-              </button>
-            ) }
             </div>
           </div>
         )}
@@ -267,34 +210,9 @@ export default function CCTVPlayer({ camera, onClose, height = 'h-64', showCredi
 
         {/* Source badge bottom-right */}
         <div className="absolute bottom-2 right-2 text-[9px] font-mono text-slate-300 bg-slate-900/80 px-1.5 py-0.5 rounded z-10 flex items-center gap-1">
-          <span>{activeSource === 'proxy' ? 'PROXY' : activeSource === 'direct' ? 'DIRECT' : activeSource}</span>
+          <span className="text-emerald-400">PROXY</span>
           <span className="text-slate-500">·{currentTier?.refreshMs / 1000}s</span>
         </div>
-
-        {/* Tier navigation bottom-left */}
-        {candidates.length > 1 && status !== 'error' && (
-          <div className="absolute bottom-2 left-2 flex items-center gap-1 z-10">
-            <button
-              onClick={handleSkipToPrev}
-              disabled={tierIndex === 0}
-              className="w-5 h-5 flex items-center justify-center text-slate-300 bg-slate-900/80 hover:bg-slate-800 rounded disabled:opacity-30 disabled:cursor-not-allowed text-[10px]"
-              aria-label="tier ก่อนหน้า"
-            >
-              ‹
-            </button>
-            <span className="text-[9px] font-mono text-slate-300 bg-slate-900/80 px-1.5 py-0.5 rounded">
-              {tierIndex + 1}/{candidates.length}
-            </span>
-            <button
-              onClick={handleSkipToNext}
-              disabled={tierIndex >= candidates.length - 1}
-              className="w-5 h-5 flex items-center justify-center text-slate-300 bg-slate-900/80 hover:bg-slate-800 rounded disabled:opacity-30 disabled:cursor-not-allowed text-[10px]"
-              aria-label="tier ถัดไป"
-            >
-              ›
-            </button>
-          </div>
-        )}
       </div>
 
       {/* === Footer: Description + Source Credit === */}
@@ -315,7 +233,7 @@ export default function CCTVPlayer({ camera, onClose, height = 'h-64', showCredi
   )
 }
 
-function StatusBadge({ status, source }) {
+function StatusBadge({ status }) {
   if (status === 'live') {
     return (
       <span className="inline-flex items-center gap-1 text-[9px] font-bold bg-emerald-600/20 text-emerald-300 border border-emerald-700 px-1.5 py-0.5 rounded">

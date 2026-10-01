@@ -42,7 +42,15 @@ export function buildProxySnapshotUrl(camId) {
 }
 
 /**
- * สร้าง candidates หลาย URL tier สสำหรับ fallback chain
+ * สร้าง candidates — Proxy-only mode (100%)
+ *
+ * สำคัญ: เลิกใช้ multi-tier fallback ไปยัง direct URL แล้ว
+ * เพราะ direct URL จาก BMA/DOH ติด CORS ทันที → โหลดไม่ได้
+ *
+ * ตอนนี้มีแค่ 2 candidate:
+ *   1. Proxy (world.tehx.dyndns.info/flood/snapshot/{id}.jpg) — primary
+ *   2. SVG placeholder — fallback เมื่อ proxy fail กัน infinite loop
+ *
  * @param {object} camera
  * @returns {[{url, source, refreshMs}]}
  */
@@ -51,10 +59,9 @@ export function buildSnapshotUrlCandidates(camera) {
   const candidates = []
   const camId = camera.id
   const proxyUrl = buildProxySnapshotUrl(camId)
-  const directUrl = camera.url
-  const fallbacks = Array.isArray(camera.snapshotFallbacks) ? camera.snapshotFallbacks : []
 
   // tier 1: Proxy snapshot (primary — ผ่าน world.tehx.dyndns.info)
+  // บังคับใช้ Proxy 100% ไม่ว่าสถานะจะเป็นอย่างไร
   if (proxyUrl) {
     candidates.push({
       url: proxyUrl,
@@ -64,26 +71,6 @@ export function buildSnapshotUrlCandidates(camera) {
     })
   }
 
-  // tier 2: Direct snapshot (BMA/DOH ตรง)
-  if (directUrl) {
-    candidates.push({
-      url: directUrl,
-      source: 'direct',
-      refreshMs: CCTV_PROXY_CONFIG.refreshIntervalFastMs,
-      label: 'Direct',
-    })
-  }
-
-  // tier 3..N: fallback URLs (เช่น alternate domain)
-  fallbacks.forEach((url, i) => {
-    candidates.push({
-      url,
-      source: 'alt',
-      refreshMs: CCTV_PROXY_CONFIG.refreshIntervalSlowMs,
-      label: `Alt ${i+1}`,
-    })
-  })
-
   // tier สุดท้าย: placeholder (กัน infinite loop)
   candidates.push({
     url: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
@@ -91,6 +78,7 @@ export function buildSnapshotUrlCandidates(camera) {
         <rect width="320" height="240" fill="#1e293b"/>
         <text x="160" y="110" font-family="sans-serif" font-size="16" fill="#64748b" text-anchor="middle">📵 No Signal</text>
         <text x="160" y="135" font-family="sans-serif" font-size="11" fill="#475569" text-anchor="middle">${camera.name || ''}</text>
+        <text x="160" y="155" font-family="sans-serif" font-size="9" fill="#475569" text-anchor="middle">Proxy: ${CCTV_PROXY_CONFIG.proxyBase}</text>
       </svg>`
     ),
     source: 'placeholder',
@@ -103,13 +91,14 @@ export function buildSnapshotUrlCandidates(camera) {
 
 /**
  * หา tier ถัดไปที่ยังไม่ลอง
+ * Note: ตอนนี้มีแค่ 2 tier (proxy + placeholder) → ใช้แค่เพื่อความ compatible
  */
 export function getNextSnapshotTier(candidates, currentIdx, failedSet) {
   for (let i = currentIdx + 1; i < candidates.length; i++) {
     if (!failedSet.has(i)) return i
   }
-  // ถ้าไม่มี → กลับไป tier 0 เพือ retry ทั้งหมด
-  return candidates.length - 1
+  // ถ้าไม่มี → กลับไป tier 0 เพื่อ retry
+  return 0
 }
 
 export const CCTV_CATEGORIES = {
