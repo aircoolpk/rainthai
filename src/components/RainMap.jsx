@@ -102,48 +102,61 @@ function MapController({ focus }) {
 }
 
 // ====== Rain Radar Layer Controller (RainViewer) ======
-function RainRadarLayer({ enabled, opacity = 0.65 }) {
-  const [radarTimestamp, setRadarTimestamp] = useState(null)
-  const [radarError, setRadarError] = useState(null)
+function RainRadarLayer({ enabled, opacity = 0.7 }) {
+  const [radarFrame, setRadarFrame] = useState(null)   // { time, path, source }
+  const [error, setError] = useState(null)
+  const [refreshNonce, setRefreshNonce] = useState(0)
 
   useEffect(() => {
     if (!enabled) {
-      setRadarTimestamp(null)
+      setRadarFrame(null)
       return
     }
     let cancelled = false
     fetchRainViewerTimestamps()
       .then((data) => {
         if (cancelled) return
-        // ใช้ frame ปัจจุบัน (path = 'nowcast' หรือ 'radar') ก่อน
-        if (data?.radar?.past?.length) {
-          setRadarTimestamp(data.radar.past[data.radar.past.length - 1])
-          setRadarError(null)
+        // ใช้ frame ล่าสุดของ radar.past (หรือ nowcast[0] ถ้ามี — ดีกว่าเพราะเป็น forecast)
+        const past = data?.radar?.past || []
+        const nowcast = data?.radar?.nowcast || []
+        if (nowcast.length > 0) {
+          setRadarFrame({ time: nowcast[0].time, path: nowcast[0].path, kind: 'nowcast' })
+        } else if (past.length > 0) {
+          const latest = past[past.length - 1]
+          setRadarFrame({ time: latest.time, path: latest.path, kind: 'past' })
         } else {
-          setRadarError('ไม่พบข้อมูล radar')
+          setError('ไม่พบข้อมูล radar frame')
         }
       })
       .catch((e) => {
         if (cancelled) return
         console.warn('[RainRadar] fetch timestamps failed:', e)
-        setRadarError(e?.message || 'fetch failed')
+        setError(e?.message || 'fetch failed')
       })
 
     return () => { cancelled = true }
-  }, [enabled])
+  }, [enabled, refreshNonce])
 
-  if (!enabled || !radarTimestamp) return null
+  if (! enabled || ! radarFrame) return null
 
-  // RainViewer tile URL pattern: https://tilecache.rainviewer.com/v2/radar/{timestamp}/256/{z}/{x}/{y}/2/1_1.png
-  const url = `https://tilecache.rainviewer.com/v2/radar/${radarTimestamp}/256/{z}/{x}/{y}/2/1_1.png`
+  // RainViewer tile URL pattern
+  // /v2/radar/{timestamp}/256/{z}/{x}/{y}/{color_scheme}/{options}.png
+  // color_scheme: 0..8 — 4=Universal Blue, 3=TITAN, 2=METEOGRAM
+  // options: snow smoothing + density
+  const url = `https://tilecache.rainviewer.com${radarFrame.path}/256/{z}/{x}/{y}/4/1_1.png`
 
   return (
     <TileLayer
       url={url}
-      attribution='&copy; <a href="https://www.rainviewer.com/" target="_blank" rel="noreferrer">RainViewer</a>'
+      attribution={'&copy; '}
       opacity={opacity}
       maxZoom={18}
+      maxNativeZoom={12}              // สำคัญ! RainViewer tile generate ถึง z12
+      tileSize={256}
+      keepBuffer={2}
+      updateWhenZooming={false}
       zIndex={450}
+      key={`${radarFrame.time}-${refreshNonce}`}
     />
   )
 }
