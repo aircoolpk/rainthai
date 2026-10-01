@@ -2,13 +2,16 @@
 // CCTV Public Cameras — กทม. + ปริมณฑล
 // =========================================================
 // หมายเหตุ:
-// - กล้องจริงจะมี HLS .m3u8 หรือ snapshot.jpg ที่ refresh ได้
-// - บาง URL เป็น placeholder/demo (จะแสดง No Signal หากโหลดไม่ได้)
-// - ผู้ใช้สามารถเพิ่ม/แก้ไข URL ในไฟล์นี้ได้ตรงๆ
+// - กล้องหลายตัวจาก BMA/DOH ติด CORS / ไม่เปิด public feed
+// - ใช้ fallback chain: direct → world.tehx.dyndns.info/flood proxy → No Signal
+//
+// โครงสร้าง Proxy URL (เลียนแบบ world.tehx.dyndns.info/flood):
+//   snapshot: {proxy_BASE}/snapshot/{camId}.jpg
+//   hls:      {proxy_BASE}/hls/{camId}/playlist.m3u8
 //
 // type:
 //   - 'hls'       → ใช้ HLS.js เล่น .m3u8
-//   - 'snapshot'  → <img> tag refresh ทุก 5 วินาที (snapshot.jpg)
+//   - 'snapshot'  → <img> tag refresh ทุก 5-10 วินาที (snapshot.jpg)
 //   - 'youtube'   → YouTube Live embed
 //
 // category:
@@ -17,6 +20,54 @@
 //   - 'water'     → กล้องเช็กระดับน้ำ/คลอง
 //   - 'weather'   → กล้องสภาพอากาศ/ทัศนวิสัย
 
+// =========================================================
+// Proxy Configuration
+// =========================================================
+// ถ้า upstream ของ กทม. ติด CORS ให้ proxy ผ่าน world.tehx.dyndns.info/flood
+// ผู้ใช้สามารถเปลี่ยน PROXY_BASE ได้ตามต้องการ
+export const CCTV_PROXY_CONFIG = {
+  enabled: true,
+  // Base URL ของ proxy ที่ใช้ดึงภาพ (เลียนแบบ world.tehx.dyndns.info/flood)
+  proxyBase: 'https://world.tehx.dyndns.info/flood',
+
+  // Refresh interval (ms) — fallback proxy จะใช้ refresh ช้ากว่าเพื่อลด load
+  refreshIntervalFastMs: 5000,   // direct snapshot
+  refreshIntervalSlowMs: 10000,  // proxy snapshot
+
+  // Timeout สำหรับการโหลด (ms)
+  loadTimeoutMs: 8000,
+
+  // Source credit (แสดงใน player/popup/sidebar footer)
+  sourceCredit: {
+    th: 'ขอบคุณข้อมูลภาพจาก: สำนักการจราจรและขนส่ง กทม. / world.tehx.dyndns.info',
+    short: 'ที่มา: กทม. + world.tehx.dyndns.info',
+  },
+}
+
+// =========================================================
+// Helpers — สร้าง proxy URL จาก camId
+// =========================================================
+
+/**
+ * สร้าง snapshot URL (ภาพนิ่ง refresh ทุก N วินาที)
+ * @param {string} camId
+ * @returns {string|null}
+ */
+export function buildProxySnapshotUrl(camId) {
+  if (!CCTV_PROXY_CONFIG.enabled) return null
+  return `${CCTV_PROXY_CONFIG.proxyBase}/snapshot/${camId}.jpg`
+}
+
+/**
+ * สร้าง HLS playlist URL
+ * @param {string} camId
+ * @returns {string|null}
+ */
+export function buildProxyHlsUrl(camId) {
+  if (!CCTV_PROXY_CONFIG.enabled) return null
+  return `${CCTV_PROXY_CONFIG.proxyBase}/hls/${camId}/playlist.m3u8`
+}
+
 export const CCTV_CATEGORIES = {
   traffic: { label: 'กล้องจราจร', color: '#3B82F6', icon: '🚦' },
   highway: { label: 'กล้องทางหลวง', color: '#F59E0B', icon: '🛣️' },
@@ -24,21 +75,36 @@ export const CCTV_CATEGORIES = {
   weather: { label: 'กล้องสภาพอากาศ', color: '#8B5CF6', icon: '🌤️' },
 }
 
+// =========================================================
+// Camera Registry — ใช้ proxy เป็น primary เพื่อหลีกเลี่ยง CORS
+// =========================================================
+// โครงสร้างข้อมูล:
+//   - id          : unique id (ใช้สร้าง proxy URL)
+//   - name        : ชื่อกล้อง
+//   - nameEn      : ชื่อภาษาอังกฤษ
+//   - source      : แหล่งที่มา (label)
+//   - category    : traffic | highway | water | weather
+//   - lat, lon    : พิกัดบนแผนที่
+//   - type        : 'hls' | 'snapshot' | 'youtube'
+//   - url         : direct URL (fallback ถ้า proxy fail)
+//   - proxyUrl    : proxy URL จาก camId (auto-generated ตอน runtime)
+//   - description : คำอธิบายเพิ่มเติม
+
 export const CCTV_CAMERAS = [
   // ===== กทม. กลางเมือง =====
   {
-    id: 'cctv-bma-silom',
+    id: 'bma-silom',
     name: 'แยกสีลม',
     nameEn: 'Silom Intersection',
     source: 'BMA Traffic',
     category: 'traffic',
     lat: 13.7260, lon: 100.5238,
-    type: 'hls',
-    url: 'https://cctv.bma.go.th/live/silom.m3u8', // placeholder
+    type: 'snapshot',
+    url: 'https://cctv.bma.go.th/snapshot/silom.jpg',
     description: 'จุดตัดถนนสีลม x สาทรเหนือ',
   },
   {
-    id: 'cctv-bma-sathorn',
+    id: 'bma-sathorn',
     name: 'แยกสาทร',
     nameEn: 'Sathorn Intersection',
     source: 'BMA Traffic',
@@ -49,7 +115,7 @@ export const CCTV_CAMERAS = [
     description: 'ถนนสาทรเหนือ ใกล้ BTS สะพานตากสิน',
   },
   {
-    id: 'cctv-bma-victory',
+    id: 'bma-victory',
     name: 'อนุสาวรีย์ชัยสมรภูมิ',
     nameEn: 'Victory Monument',
     source: 'BMA Traffic',
@@ -60,7 +126,7 @@ export const CCTV_CAMERAS = [
     description: 'วงเวียนอนุสาวรีย์ชัย จุดตัดราชดำริ',
   },
   {
-    id: 'cctv-bma-asoke',
+    id: 'bma-asoke',
     name: 'แยกอโศก',
     nameEn: 'Asok Intersection',
     source: 'BMA Traffic',
@@ -71,7 +137,7 @@ export const CCTV_CAMERAS = [
     description: 'จุดตัดอโศก-สุขุมวิท',
   },
   {
-    id: 'cctv-bma-pratunam',
+    id: 'bma-pratunam',
     name: 'แยกประตูน้ำ',
     nameEn: 'Pratunam',
     source: 'BMA Traffic',
@@ -82,7 +148,7 @@ export const CCTV_CAMERAS = [
     description: 'ถนนเพลินจิต x ราชดำริ',
   },
   {
-    id: 'cctv-bma-ploenchit',
+    id: 'bma-ploenchit',
     name: 'แยกเพลินจิต',
     nameEn: 'Ploenchit',
     source: 'BMA Traffic',
@@ -95,7 +161,7 @@ export const CCTV_CAMERAS = [
 
   // ===== กทม. ฝั่งตะวันตก =====
   {
-    id: 'cctv-bma-bangkae',
+    id: 'bma-bangkae',
     name: 'แยกบางแค',
     nameEn: 'Bangkae Intersection',
     source: 'BMA Traffic',
@@ -106,7 +172,7 @@ export const CCTV_CAMERAS = [
     description: 'ถนนเพชรเกษม x บางแค',
   },
   {
-    id: 'cctv-bma-phetkasem',
+    id: 'bma-phetkasem',
     name: 'ถนนเพชรเกษม กม.12',
     nameEn: 'Phetkasem Km.12',
     source: 'BMA Traffic',
@@ -119,7 +185,7 @@ export const CCTV_CAMERAS = [
 
   // ===== กทม. ฝั่งตะวันออก (เขตวิกฤตน้ำท่วม) =====
   {
-    id: 'cctv-bma-ladkrabang',
+    id: 'bma-ladkrabang',
     name: 'แยกลาดกระบัง',
     nameEn: 'Lat Krabang',
     source: 'BMA Traffic',
@@ -130,7 +196,7 @@ export const CCTV_CAMERAS = [
     description: 'ถนนลาดกระบัง ใกล้สนามบินสุวรรณภูมิ',
   },
   {
-    id: 'cctv-water-romklao',
+    id: 'bma-romklao-water',
     name: 'คลองร่มเกล้า (เช็กระดับน้ำ)',
     nameEn: 'Rom Klao Canal Water Level',
     source: 'BMA Drainage',
@@ -141,7 +207,7 @@ export const CCTV_CAMERAS = [
     description: 'สถานีวัดระดับน้ำคลองร่มเกล้า',
   },
   {
-    id: 'cctv-water-saen',
+    id: 'bma-saensaep',
     name: 'คลองแสนแสบ',
     nameEn: 'Saen Saep Canal',
     source: 'BMA Drainage',
@@ -152,7 +218,7 @@ export const CCTV_CAMERAS = [
     description: 'คลองแสนแสบ ใกล้ MRT ห้วยขวาง',
   },
   {
-    id: 'cctv-water-phra',
+    id: 'bma-phrakhanong',
     name: 'คลองพระโขนง',
     nameEn: 'Phra Khanong Canal',
     source: 'BMA Drainage',
@@ -165,7 +231,7 @@ export const CCTV_CAMERAS = [
 
   // ===== กรมทางหลวง (DOH) =====
   {
-    id: 'cctv-doh-motorway-9',
+    id: 'doh-motorway-9',
     name: 'ทางหลวงพิเศษ M9 (วงแหวนรอบนอก)',
     nameEn: 'Motorway M9 Outer Ring',
     source: 'DOH',
@@ -176,7 +242,7 @@ export const CCTV_CAMERAS = [
     description: 'ทางหลวงพิเศษ M9 ฝั่งตะวันตก',
   },
   {
-    id: 'cctv-doh-motorway-7',
+    id: 'doh-motorway-7',
     name: 'ทางหลวงพิเศษ M7 (มอเตอร์เวย์)',
     nameEn: 'Motorway M7',
     source: 'DOH',
@@ -187,7 +253,7 @@ export const CCTV_CAMERAS = [
     description: 'มอเตอร์เวย์ M7 ช่วงบางแค',
   },
   {
-    id: 'cctv-doh-vibhavadi',
+    id: 'doh-vibhavadi',
     name: 'ถนนวิภาวดีรังสิต',
     nameEn: 'Vibhavadi Rangsit Rd',
     source: 'DOH',
@@ -200,7 +266,7 @@ export const CCTV_CAMERAS = [
 
   // ===== ปริมณฑล: นนทบุรี =====
   {
-    id: 'cctv-non-pakkred',
+    id: 'non-pakkred',
     name: 'ปากเกร็ด (สะพานพระราม 4)',
     nameEn: 'Pakkred Bridge',
     source: 'DOH',
@@ -211,8 +277,8 @@ export const CCTV_CAMERAS = [
     description: 'สะพานพระราม 4 ข้ามแม่น้ำเจ้าพระยา',
   },
   {
-    id: 'cctv-non-rama5',
-    name: 'ถนนรัชดา-นนทบุรี (Ratchada)',
+    id: 'non-ratchada',
+    name: 'ถนนรัชดา-นนทบุรี',
     nameEn: 'Ratchada Nonthaburi',
     source: 'DOH',
     category: 'highway',
@@ -224,7 +290,7 @@ export const CCTV_CAMERAS = [
 
   // ===== ปริมณฑล: ปทุมธานี =====
   {
-    id: 'cctv-pth-rangsit',
+    id: 'pth-rangsit-canal',
     name: 'รังสิต (คลองรังสิตประยูรศักดิ์)',
     nameEn: 'Rangsit Canal',
     source: 'DOH',
@@ -235,7 +301,7 @@ export const CCTV_CAMERAS = [
     description: 'สถานีวัดระดับน้ำคลองรังสิต',
   },
   {
-    id: 'cctv-pth-lamlukka',
+    id: 'pth-lamlukka',
     name: 'ลำลูกกา (ถนนลำลูกกา)',
     nameEn: 'Lam Luk Ka',
     source: 'DOH',
@@ -248,7 +314,7 @@ export const CCTV_CAMERAS = [
 
   // ===== ปริมณฑล: สมุทรปราการ =====
   {
-    id: 'cctv-smk-bangna',
+    id: 'smk-bangna',
     name: 'บางนา (ถนนบางนา-ตราด)',
     nameEn: 'Bangna-Trat Rd',
     source: 'DOH',
@@ -259,7 +325,7 @@ export const CCTV_CAMERAS = [
     description: 'กม.5 ถนนบางนา-ตราด',
   },
   {
-    id: 'cctv-smk-bangphli',
+    id: 'smk-bangphli',
     name: 'บางพลี (สะพานกลับรถ)',
     nameEn: 'Bang Phli',
     source: 'DOH',
@@ -272,7 +338,7 @@ export const CCTV_CAMERAS = [
 
   // ===== ปริมณฑล: สมุทรสาคร =====
   {
-    id: 'cctv-smc-mahachai',
+    id: 'smc-mahachai',
     name: 'มหาชัย (สะพานข้ามแม่น้ำท่าจีน)',
     nameEn: 'Mahachai Bridge',
     source: 'DOH',
@@ -285,7 +351,7 @@ export const CCTV_CAMERAS = [
 
   // ===== ปริมณฑล: นครปฐม =====
   {
-    id: 'cctv-nkp-samnakkhi',
+    id: 'nkp-samnakkhi',
     name: 'สามแคว (นครปฐม)',
     nameEn: 'Sam Nakkhi',
     source: 'DOH',
@@ -297,7 +363,40 @@ export const CCTV_CAMERAS = [
   },
 ]
 
-// ====== Helpers ======
+// =========================================================
+// Resolved URL helpers (ใช้ใน Player)
+// =========================================================
+
+/**
+ * Resolve URL ตาม fallback chain:
+ *   1. proxyUrl (proxy snapshot/HLS ผ่าน world.tehx.dyndns.info)
+ *   2. url (direct snapshot/HLS จากต้นทาง)
+ * @param {object} camera
+ * @returns {{ url: string, source: 'proxy' | 'direct' }}
+ */
+export function resolveCameraUrl(camera) {
+  const proxyUrl = camera.type === 'hls'
+    ? buildProxyHlsUrl(camera.id)
+    : buildProxySnapshotUrl(camera.id)
+
+  if (proxyUrl && CCTV_PROXY_CONFIG.enabled) {
+    return { url: proxyUrl, source: 'proxy' }
+  }
+  return { url: camera.url, source: 'direct' }
+}
+
+/**
+ * Resolve refresh interval ตาม source
+ * @param {'proxy' | 'direct'} source
+ * @returns {number} ms
+ */
+export function resolveRefreshInterval(source) {
+  return source === 'proxy'
+    ? CCTV_PROXY_CONFIG.refreshIntervalSlowMs
+    : CCTV_PROXY_CONFIG.refreshIntervalFastMs
+}
+
+// ====== Helpers (เดิม) ======
 
 export function getCCTVById(id) {
   return CCTV_CAMERAS.find((c) => c.id === id) || null

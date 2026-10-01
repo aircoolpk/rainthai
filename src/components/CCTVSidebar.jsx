@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Camera, Search, MapPin, X, Wifi } from 'lucide-react'
-import { CCTV_CAMERAS, CCTV_CATEGORIES } from '../data/cctv'
+import { CCTV_CAMERAS, CCTV_CATEGORIES, CCTV_PROXY_CONFIG } from '../data/cctv'
 import CCTVPlayer from './CCTVPlayer'
 
 /**
@@ -139,14 +139,21 @@ export default function CCTVSidebar({ selectedId, onSelect, compact, onClose }) 
       </div>
 
       {/* === Footer info === */}
-      <div className="px-3 py-2 border-t border-slate-100 bg-slate-50">
+      <div className="px-3 py-2 border-t border-slate-100 bg-slate-50 space-y-1">
         <div className="text-[10px] text-slate-500 leading-relaxed">
           💡 <span className="font-semibold text-slate-700">เคล็ดลับ:</span>{' '}
           กดพินกล้องบนแผนที่ หรือเลือกจากรายการนี้เพื่อเปิดดูวิดีโอ
         </div>
-        <div className="text-[10px] text-slate-400 mt-1 flex items-center gap-2">
+        <div className="text-[10px] text-slate-400 flex items-center gap-2">
           <Wifi className="w-2.5 h-2.5" />
-          Snapshot refresh ทุก 5 วินาที · HLS ใช้ hls.js
+          Snapshot refresh ทุก 5–10 วินาที · HLS ใช้ hls.js
+        </div>
+        {/* ===== Source Credit ===== */}
+        <div className="pt-1 border-t border-slate-200 text-[9px] text-slate-500 leading-relaxed">
+          <div className="flex items-start gap-1">
+            <span className="flex-shrink-0">🙏</span>
+            <span className="line-clamp-2">{CCTV_PROXY_CONFIG.sourceCredit.th}</span>
+          </div>
         </div>
       </div>
     </div>

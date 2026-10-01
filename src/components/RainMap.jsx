@@ -5,7 +5,7 @@ import { LEVEL_META } from '../services/weatherService'
 import { SEVERITY_META } from '../data/provinces'
 import { RISK_META } from '../data/bangkok'
 import { severityFromWaterLevel } from '../data/bangkok'
-import { CCTV_CAMERAS, CCTV_CATEGORIES } from '../data/cctv'
+import { CCTV_CAMERAS, CCTV_CATEGORIES, CCTV_PROXY_CONFIG } from '../data/cctv'
 import { fetchRainViewerTimestamps } from '../services/rainViewer'
 import { ThumbsUp, ThumbsDown, Lock, MapPin, Clock, Camera, Video, X } from 'lucide-react'
 
@@ -506,6 +506,13 @@ export default function RainMap({
                     {isSelected ? 'กำลังเล่นอยู่' : 'เปิดดูวิดีโอ'}
                   </button>
                 )}
+                {/* ===== Source Credit (Popup Footer) ===== */}
+                <div className="mt-2 pt-2 border-t border-slate-100 text-[9px] text-slate-500 leading-relaxed">
+                  <div className="flex items-start gap-1">
+                    <span className="flex-shrink-0">🙏</span>
+                    <span className="line-clamp-2">{CCTV_PROXY_CONFIG.sourceCredit.th}</span>
+                  </div>
+                </div>
               </div>
             </Popup>
           </Marker>
