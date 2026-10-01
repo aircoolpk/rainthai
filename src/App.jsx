@@ -4,6 +4,7 @@ import { THAI_PROVINCES, FLOOD_REPORTS, SEVERITY_META } from './data/provinces'
 import {
   BKK_DISTRICTS, FLOOD_ROADS, FLOOD_ZONES, PERIMETER_PROVINCES, RISK_META,
 } from './data/bangkok'
+import { CCTV_CAMERAS } from './data/cctv'
 import { parseWaterLevelCm } from './data/waterLevel'
 import { fetchAllProvinces, LEVEL_META } from './services/weatherService'
 import {
@@ -33,9 +34,11 @@ import IncidentReportModal     from './components/IncidentReportModal.jsx'
 import LoginModal              from './components/LoginModal.jsx'
 import EmergencyContactsModal  from './components/EmergencyContactsModal.jsx'
 import Pagination              from './components/Pagination.jsx'
+import CCTVSidebar             from './components/CCTVSidebar.jsx'
+import CCTVPlayer              from './components/CCTVPlayer.jsx'
 import {
   Droplets, Waves, Siren, MapPin, Building2, Megaphone, Phone, Car, Home,
-  ChevronLeft, ChevronRight, RefreshCw,
+  ChevronLeft, ChevronRight, RefreshCw, Camera, Radar, CloudRain, X,
 } from 'lucide-react'
 
 const SOS_PAGE_SIZE = 9
@@ -81,6 +84,12 @@ export default function App() {
   const [sosOpen, setSOpen]         = useState(false)
   const [incidentOpen, setIOpen]    = useState(false)
   const [contactsOpen, setCOpen]   = useState(false)
+
+  // ===== New: CCTV + Rain Radar state =====
+  const [showCCTV, setShowCCTV] = useState(true)           // toggle CCTV markers
+  const [showRainRadar, setShowRainRadar] = useState(false) // toggle Rain Radar layer
+  const [selectedCameraId, setSelectedCameraId] = useState(null) // active CCTV camera
+  const [cctvSidebarOpen, setCctvSidebarOpen] = useState(true)   // show/hide CCTV sidebar (mobile collapse)
 
   // Data state
   const [sosCases, setSCases]       = useState(() => applyAutoExpire(seedSOSCases()))
@@ -440,6 +449,17 @@ export default function App() {
     setFocus(null)
   }
 
+  // ===== New: CCTV handlers =====
+  const handleCCTVSelect = (camera) => {
+    setSelectedCameraId(camera.id)
+    setFocus([camera.lat, camera.lon])
+    // เปิด sidebar ถ้าปิดอยู่ (mobile)
+    if (!cctvSidebarOpen) setCctvSidebarOpen(true)
+  }
+  const handleCCTVClose = () => {
+    setSelectedCameraId(null)
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
       <Header
@@ -533,6 +553,54 @@ export default function App() {
         {/* Map + sidebar */}
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-4">
           <div className="h-[480px] md:h-[600px] lg:h-[680px] rounded-xl overflow-hidden border border-slate-200 shadow-sm relative bg-white">
+            {/* ===== Map Overlay Controls (Rain Radar + CCTV Toggle) ===== */}
+            <div className="absolute top-3 left-3 z-[1000] flex flex-col gap-1.5 max-w-[calc(100%-1.5rem)]">
+              {/* Rain Radar Toggle */}
+              <button
+                onClick={() => setShowRainRadar((v) => !v)}
+                className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg shadow-md border transition ${
+                  showRainRadar
+                    ? 'bg-sky-600 border-sky-700 text-white hover:bg-sky-500'
+                    : 'bg-white border-slate-200 text-slate-700 hover:border-sky-400 hover:bg-sky-50'
+                }`}
+                title="เปิด/ปิดชั้นข้อมูลเรดาร์ฝน (RainViewer)"
+              >
+                <Radar className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Rain Radar</span>
+                <span className={`ml-1 inline-block w-2 h-2 rounded-full ${showRainRadar ? 'bg-emerald-300 animate-pulse' : 'bg-slate-300'}`} />
+              </button>
+
+              {/* CCTV Toggle */}
+              <button
+                onClick={() => setShowCCTV((v) => !v)}
+                className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg shadow-md border transition ${
+                  showCCTV
+                    ? 'bg-cyan-600 border-cyan-700 text-white hover:bg-cyan-500'
+                    : 'bg-white border-slate-200 text-slate-700 hover:border-cyan-400 hover:bg-cyan-50'
+                }`}
+                title="เปิด/ปิดพินกล้อง CCTV บนแผนที่"
+              >
+                <Camera className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">CCTV</span>
+                <span className="text-[9px] opacity-80">
+                  {CCTV_CAMERAS.length}
+                </span>
+              </button>
+            </div>
+
+            {/* ===== Active Camera Overlay (mini) — ตอนเลือกกล้องแล้ว ===== */}
+            {selectedCameraId && (
+              <div className="absolute top-3 right-3 z-[1000] w-64 max-w-[calc(100%-1.5rem)] animate-fade-in">
+                <div className="bg-white rounded-lg shadow-lg border border-slate-200 overflow-hidden">
+                  <CCTVPlayer
+                    camera={CCTV_CAMERAS.find((c) => c.id === selectedCameraId)}
+                    onClose={handleCCTVClose}
+                    height="h-36"
+                  />
+                </div>
+              </div>
+            )}
+
             <LoadingOverlay show={loading && provinces.length === 0} />
             <RainMap
               provinces={provinces}
@@ -549,117 +617,152 @@ export default function App() {
               onIncidentClick={handleReportClick}
               onIncidentVote={handleIncidentVote}
               onDistrictClick={handleDistrictClick}
+              showCCTV={showCCTV}
+              showRainRadar={showRainRadar}
+              selectedCameraId={selectedCameraId}
+              onCCTVClick={handleCCTVSelect}
             />
           </div>
 
-          <div className="flex flex-col gap-3 lg:h-[680px]">
-            {selectedDistrict ? (
-              <div className="flex-1 min-h-0 rounded-xl overflow-hidden border border-slate-200 shadow-sm">
-                <DistrictPanel
-                  district={selectedDistrict}
-                  onClose={() => { setSelectedDistrict(null); setFocus(null) }}
-                  onFocus={(coord) => setFocus(coord)}
+          {/* ===== Right Sidebar (กล้อง CCTV หรือ District List) ===== */}
+          {cctvSidebarOpen && !selectedDistrict && !selectedProvince ? (
+            <div className="flex flex-col gap-3 lg:h-[680px]">
+              <div className="flex-1 min-h-0">
+                <CCTVSidebar
+                  selectedId={selectedCameraId}
+                  onSelect={handleCCTVSelect}
                 />
               </div>
-            ) : selectedProvince ? (
-              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-                <div className="text-xs text-sky-600 uppercase tracking-wider font-bold">
-                  {selectedProvince.region}
-                </div>
-                <div className="text-lg font-bold text-slate-900 mt-0.5">
-                  {selectedProvince.name}
-                </div>
-                <div className="text-xs text-slate-500 mt-1">
-                  ฝน 24 ชม.: <b>{selectedProvince.accumulated24h} มม.</b>
-                </div>
-                <button
-                  onClick={() => { setSelectedProvince(null); setFocus(null) }}
-                  className="mt-3 text-xs text-sky-600 hover:text-sky-700 font-medium"
-                >
-                  ← กลับ
-                </button>
-              </div>
-            ) : (
-              <>
-                <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm">
-                  <SearchBar
-                    value={search}
-                    onChange={setSearch}
-                    placeholder="🔍 ค้นหาเขต / ชุมชน / ถนน..."
-                  />
-                </div>
+              <Legend />
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3 lg:h-[680px]">
+              {selectedDistrict ? (
+                <>
+                  <div className="flex-1 min-h-0 rounded-xl overflow-hidden border border-slate-200 shadow-sm">
+                    <DistrictPanel
+                      district={selectedDistrict}
+                      onClose={() => { setSelectedDistrict(null); setFocus(null) }}
+                      onFocus={(coord) => setFocus(coord)}
+                    />
+                  </div>
+                  {/* Mini CCTV Preview ตอนเลือกเขต */}
+                  <div className="h-64 rounded-xl overflow-hidden border border-slate-200 shadow-sm">
+                    <CCTVSidebar
+                      selectedId={selectedCameraId}
+                      onSelect={handleCCTVSelect}
+                      compact
+                    />
+                  </div>
+                </>
+              ) : selectedProvince ? (
+                <>
+                  <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+                    <div className="text-xs text-sky-600 uppercase tracking-wider font-bold">
+                      {selectedProvince.region}
+                    </div>
+                    <div className="text-lg font-bold text-slate-900 mt-0.5">
+                      {selectedProvince.name}
+                    </div>
+                    <div className="text-xs text-slate-500 mt-1">
+                      ฝน 24 ชม.: <b>{selectedProvince.accumulated24h} มม.</b>
+                    </div>
+                    <button
+                      onClick={() => { setSelectedProvince(null); setFocus(null) }}
+                      className="mt-3 text-xs text-sky-600 hover:text-sky-700 font-medium"
+                    >
+                      ← กลับ
+                    </button>
+                  </div>
+                  <div className="flex-1 min-h-0 rounded-xl overflow-hidden border border-slate-200 shadow-sm">
+                    <CCTVSidebar
+                      selectedId={selectedCameraId}
+                      onSelect={handleCCTVSelect}
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm">
+                    <SearchBar
+                      value={search}
+                      onChange={setSearch}
+                      placeholder="🔍 ค้นหาเขต / ชุมชน / ถนน..."
+                    />
+                  </div>
 
-                <div className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-2">
-                  {/* Header + Pagination status */}
-                  {(() => {
-                    const filtered = BKK_DISTRICTS.filter((d) =>
-                      !search.trim() ||
-                      d.name.toLowerCase().includes(search.toLowerCase()) ||
-                      (d.communities || []).some((c) => c.toLowerCase().includes(search.toLowerCase())),
-                    )
-                    const sorted = sortDistricts(filtered)
-                    const totalPages = Math.max(1, Math.ceil(sorted.length / DISTRICT_PAGE_SIZE))
-                    const safePage = Math.min(pageDistrict, totalPages)
-                    const pageItems = sorted.slice((safePage - 1) * DISTRICT_PAGE_SIZE, safePage * DISTRICT_PAGE_SIZE)
-                    return (
-                      <>
-                        <div className="flex items-center justify-between px-1">
-                          <div className="text-xs font-semibold text-slate-700 uppercase tracking-wider">
-                            เขตในกรุงเทพฯ ({sorted.length})
-                          </div>
-                          {sorted.length > 0 && (
-                            <div className="text-[10px] text-slate-500 font-medium">
-                                หน้า {safePage} / {totalPages}
-                              </div>
-                          )}
-                        </div>
-                        {pageItems.map((d) => (
-                          <DistrictCard
-                            key={d.id}
-                            d={d}
-                            onClick={handleDistrictClick}
-                            isActive={selectedDistrict?.id === d.id}
-                          />
-                        ))}
-                        {sorted.length === 0 && (
-                          <div className="text-center text-xs text-slate-400 py-4">
-                            ไม่พบเขตที่ค้นหา
-                          </div>
-                        )}
-
-                        {/* ===== Pagination controls (เขต กทม.) ===== */}
-                        {totalPages > 1 && (
-                          <div className="flex items-center justify-center gap-2 pt-2 pb-1">
-                            <button
-                              onClick={() => setPageDistrict((p) => Math.max(1, p - 1))}
-                              disabled={safePage <= 1}
-                              className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
-                            >
-                              <ChevronLeft className="w-3.5 h-3.5" />
-                              <span>ก่อนหน้า</span>
-                            </button>
-                            <div className="text-xs text-slate-600 font-medium px-2">
-                              {safePage} / {totalPages}
+                  <div className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-2">
+                    {/* Header + Pagination status */}
+                    {(() => {
+                      const filtered = BKK_DISTRICTS.filter((d) =>
+                        !search.trim() ||
+                        d.name.toLowerCase().includes(search.toLowerCase()) ||
+                        (d.communities || []).some((c) => c.toLowerCase().includes(search.toLowerCase())),
+                      )
+                      const sorted = sortDistricts(filtered)
+                      const totalPages = Math.max(1, Math.ceil(sorted.length / DISTRICT_PAGE_SIZE))
+                      const safePage = Math.min(pageDistrict, totalPages)
+                      const pageItems = sorted.slice((safePage - 1) * DISTRICT_PAGE_SIZE, safePage * DISTRICT_PAGE_SIZE)
+                      return (
+                        <>
+                          <div className="flex items-center justify-between px-1">
+                            <div className="text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                              เขตในกรุงเทพฯ ({sorted.length})
                             </div>
-                            <button
-                              onClick={() => setPageDistrict((p) => Math.min(totalPages, p + 1))}
-                              disabled={safePage >= totalPages}
-                              className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
-                            >
-                              <span>ถัดไป</span>
-                              <ChevronRight className="w-3.5 h-3.5" />
-                            </button>
+                            {sorted.length > 0 && (
+                              <div className="text-[10px] text-slate-500 font-medium">
+                                  หน้า {safePage} / {totalPages}
+                                </div>
+                            )}
                           </div>
-                        )}
-                      </>
-                    )
-                  })()}
-                </div>
+                          {pageItems.map((d) => (
+                            <DistrictCard
+                              key={d.id}
+                              d={d}
+                              onClick={handleDistrictClick}
+                              isActive={selectedDistrict?.id === d.id}
+                            />
+                          ))}
+                          {sorted.length === 0 && (
+                            <div className="text-center text-xs text-slate-400 py-4">
+                              ไม่พบเขตที่ค้นหา
+                            </div>
+                          )}
 
-                <Legend />
-              </>
-            )}
-          </div>
+                          {/* ===== Pagination controls (เขต กทม.) ===== */}
+                          {totalPages > 1 && (
+                            <div className="flex items-center justify-center gap-2 pt-2 pb-1">
+                              <button
+                                onClick={() => setPageDistrict((p) => Math.max(1, p - 1))}
+                                disabled={safePage <= 1}
+                                className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                              >
+                                <ChevronLeft className="w-3.5 h-3.5" />
+                                <span>ก่อนหน้า</span>
+                              </button>
+                              <div className="text-xs text-slate-600 font-medium px-2">
+                                {safePage} / {totalPages}
+                              </div>
+                              <button
+                                onClick={() => setPageDistrict((p) => Math.min(totalPages, p + 1))}
+                                disabled={safePage >= totalPages}
+                                className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                              >
+                                <span>ถัดไป</span>
+                                <ChevronRight className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )}
+                        </>
+                      )
+                    })()}
+                  </div>
+
+                  <Legend />
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         {/* ===== Consolidated Flood Reports (with Filter Tabs) ===== */}

@@ -1,11 +1,13 @@
 import { MapContainer, TileLayer, Marker, Popup, Polyline, Polygon, Tooltip, useMap } from 'react-leaflet'
 import L from 'leaflet'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { LEVEL_META } from '../services/weatherService'
 import { SEVERITY_META } from '../data/provinces'
 import { RISK_META } from '../data/bangkok'
 import { severityFromWaterLevel } from '../data/bangkok'
-import { ThumbsUp, ThumbsDown, Lock, MapPin, Clock } from 'lucide-react'
+import { CCTV_CAMERAS, CCTV_CATEGORIES } from '../data/cctv'
+import { fetchRainViewerTimestamps } from '../services/rainViewer'
+import { ThumbsUp, ThumbsDown, Lock, MapPin, Clock, Camera, Video, X } from 'lucide-react'
 
 // ====== Custom rain drop icon ======
 function buildRainIcon(level) {
@@ -52,6 +54,22 @@ function buildIncidentIcon(waterLevelCm) {
   })
 }
 
+// ====== CCTV icon (กล้อง) ======
+function buildCCTVIcon(category) {
+  const meta = CCTV_CATEGORIES[category] || CCTV_CATEGORIES.traffic
+  return L.divIcon({
+    className: 'cctv-icon-wrapper',
+    html: `<div class="cctv-pin" style="background:${meta.color}">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="white" stroke="white" stroke-width="0.5">
+        <path d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11l-4 4z"/>
+      </svg>
+    </div>`,
+    iconSize: [30, 30],
+    iconAnchor: [15, 15],
+    popupAnchor: [0, -12],
+  })
+}
+
 // ====== Polyline style (yellow caution / red critical/watch) ======
 function roadStyle(severity) {
   const cfg = {
@@ -81,6 +99,53 @@ function MapController({ focus }) {
     }
   }, [focus, map])
   return null
+}
+
+// ====== Rain Radar Layer Controller (RainViewer) ======
+function RainRadarLayer({ enabled, opacity = 0.65 }) {
+  const [radarTimestamp, setRadarTimestamp] = useState(null)
+  const [radarError, setRadarError] = useState(null)
+
+  useEffect(() => {
+    if (!enabled) {
+      setRadarTimestamp(null)
+      return
+    }
+    let cancelled = false
+    fetchRainViewerTimestamps()
+      .then((data) => {
+        if (cancelled) return
+        // ใช้ frame ปัจจุบัน (path = 'nowcast' หรือ 'radar') ก่อน
+        if (data?.radar?.past?.length) {
+          setRadarTimestamp(data.radar.past[data.radar.past.length - 1])
+          setRadarError(null)
+        } else {
+          setRadarError('ไม่พบข้อมูล radar')
+        }
+      })
+      .catch((e) => {
+        if (cancelled) return
+        console.warn('[RainRadar] fetch timestamps failed:', e)
+        setRadarError(e?.message || 'fetch failed')
+      })
+
+    return () => { cancelled = true }
+  }, [enabled])
+
+  if (!enabled || !radarTimestamp) return null
+
+  // RainViewer tile URL pattern: https://tilecache.rainviewer.com/v2/radar/{timestamp}/256/{z}/{x}/{y}/2/1_1.png
+  const url = `https://tilecache.rainviewer.com/v2/radar/${radarTimestamp}/256/{z}/{x}/{y}/2/1_1.png`
+
+  return (
+    <TileLayer
+      url={url}
+      attribution='&copy; <a href="https://www.rainviewer.com/" target="_blank" rel="noreferrer">RainViewer</a>'
+      opacity={opacity}
+      maxZoom={18}
+      zIndex={450}
+    />
+  )
 }
 
 // ====== Incident Popup (read-only) ======
@@ -157,6 +222,11 @@ export default function RainMap({
   onIncidentClick,
   onIncidentVote,
   onDistrictClick,
+  // ===== New CCTV + Rain Radar props =====
+  showCCTV = true,
+  showRainRadar = false,
+  selectedCameraId = null,
+  onCCTVClick,
 }) {
   const showRain  = view === 'rain'     || view === 'combined'
   const showFlood = view === 'flood'    || view === 'combined'
@@ -176,6 +246,9 @@ export default function RainMap({
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         maxZoom={19}
       />
+
+      {/* ===== Rain Radar Layer (RainViewer — ฟรี, ไม่ต้อง API key) ===== */}
+      <RainRadarLayer enabled={showRainRadar} opacity={0.65} />
 
       {/* ===== Polylines: เส้นถนนน้ำท่วม ===== */}
       {showFlood && floodRoads.map((r) => {
@@ -377,6 +450,67 @@ export default function RainMap({
           </Popup>
         </Marker>
       ))}
+
+      {/* ===== Markers: CCTV Public Cameras (กล้องจราจร/ทางหลวง/ระดับน้ำ) ===== */}
+      {showCCTV && CCTV_CAMERAS.map((cam) => {
+        const cat = CCTV_CATEGORIES[cam.category]
+        const isSelected = cam.id === selectedCameraId
+        return (
+          <Marker
+            key={cam.id}
+            position={[cam.lat, cam.lon]}
+            icon={buildCCTVIcon(cam.category)}
+            eventHandlers={{
+              click: () => onCCTVClick && onCCTVClick(cam),
+            }}
+            zIndexOffset={isSelected ? 800 : 600}
+          >
+            <Popup>
+              <div className="min-w-[240px] -my-1">
+                <div className="flex items-start justify-between gap-2 mb-1.5">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-semibold text-sm text-slate-900 truncate">
+                      {cam.name}
+                    </div>
+                    {cam.nameEn && (
+                      <div className="text-[10px] text-slate-500 truncate">{cam.nameEn}</div>
+                    )}
+                  </div>
+                  <span
+                    className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full text-white flex-shrink-0"
+                    style={{ background: cat.color }}
+                  >
+                    {cat.icon} {cat.label}
+                  </span>
+                </div>
+                <div className="text-[10px] text-slate-500 flex items-center gap-1 mb-1">
+                  <Video className="w-2.5 h-2.5" />
+                  <span className="font-mono">{cam.source}</span>
+                  <span className="text-slate-300">·</span>
+                  <span className="font-mono text-[9px]">
+                    {cam.type === 'hls' ? 'HLS' : cam.type === 'snapshot' ? 'IMG/5s' : cam.type.toUpperCase()}
+                  </span>
+                </div>
+                {cam.description && (
+                  <div className="text-xs text-slate-700 mb-2 flex items-start gap-1">
+                    <MapPin className="w-3 h-3 mt-0.5 flex-shrink-0 text-slate-400" />
+                    <span>{cam.description}</span>
+                  </div>
+                )}
+                {onCCTVClick && (
+                  <button
+                    onClick={() => onCCTVClick(cam)}
+                    className="w-full inline-flex items-center justify-center gap-1.5 text-xs font-semibold bg-cyan-600 hover:bg-cyan-500 text-white px-3 py-1.5 rounded-md transition"
+                  >
+                    <Camera className="w-3 h-3" />
+                    {isSelected ? 'กำลังเล่นอยู่' : 'เปิดดูวิดีโอ'}
+                  </button>
+                )}
+              </div>
+            </Popup>
+          </Marker>
+        )
+      })}
     </MapContainer>
   )
 }
